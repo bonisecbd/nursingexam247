@@ -346,9 +346,11 @@ Rules:
 
 ## 19. Admin Module
 
+**Status: Partially implemented.** `GET /api/admin/dashboard` returns role-protected aggregate metrics; model-test draft create/update/question-assignment/publish endpoints are available to admins and editors. The frontend console is at `/admin/dashboard`; user management, question CRUD/import, granular permissions, audit logs, and operational workflows are still planned. See [API.md](./API.md#admin-dashboard-api).
+
 **Purpose:** provide role-protected content and operations management, audit trails, and safe operational summaries.
 
-Proposed endpoint families (all `/api/admin/...`):
+Remaining proposed endpoint families (all `/api/admin/...`):
 
 - `GET|POST|PATCH /users` and `POST /users/{user}/disable|enable` — user search/profile/status management; no password/token disclosure.
 - `GET|POST|PATCH|DELETE /questions` — question-bank CRUD, validation, activation, import/export under policy.

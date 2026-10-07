@@ -1,7 +1,7 @@
 <?php
 
-use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\AdminDashboardController;
+use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ExamAttemptController;
 use App\Http\Controllers\Api\ModelTestController;
 use App\Http\Controllers\Api\ProfileController;

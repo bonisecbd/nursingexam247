@@ -1,59 +1,142 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+﻿# NurseExam247 Backend
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+NurseExam247 is a Laravel-based web application and JSON API for nursing exam preparation. It provides account and profile management, subject and model-test browsing, timed exam attempts, results, and answer solutions.
 
-## About Laravel
+## Features
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+- User registration, login, logout, and password reset
+- User profile and profile photo management
+- Public subject and model-test listings
+- Authenticated exam attempts, answer saving, submission, and history
+- Result summaries and question-by-question solutions
+- Authenticated admin dashboard and model-test management
+- Laravel-powered web pages for login, registration, tests, exams, results, history, and profiles
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## Requirements
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+- PHP 8.2 or later
+- Composer
+- A database supported by Laravel (SQLite is the default in `.env.example`; MySQL can also be used)
+- Node.js and npm for building or serving frontend assets
 
-## Learning Laravel
+On Windows with XAMPP, the PHP executable is commonly located at `C:\xampp\php\php.exe`. Add `C:\xampp\php` to your Windows `PATH` to use `php` directly. Otherwise, replace `php` in the commands below with `& "C:\xampp\php\php.exe"`.
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+## Setup
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+Run these commands in PowerShell from the `backend` directory:
 
-## Laravel Sponsors
+```powershell
+cd E:\nurseexam247\backend
+composer install
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+if (-not (Test-Path .env)) {
+    Copy-Item .env.example .env
+}
 
-### Premium Partners
+php artisan key:generate
+```
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+If Composer is not installed, install it from [getcomposer.org](https://getcomposer.org/download/) and select the XAMPP PHP executable (`C:\xampp\php\php.exe`) when prompted.
 
-## Contributing
+### Database
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+The example environment uses SQLite. Create its database file if it does not already exist, then run the migrations:
 
-## Code of Conduct
+```powershell
+if (-not (Test-Path database\database.sqlite)) {
+    New-Item -ItemType File database\database.sqlite | Out-Null
+}
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+php artisan migrate
+```
 
-## Security Vulnerabilities
+To use MySQL instead, create a database in MySQL (for example, `nursingexam`) and update the database settings in `.env`:
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+```dotenv
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=nursingexam
+DB_USERNAME=root
+DB_PASSWORD=
+```
 
-## License
+Make sure the PHP `pdo_mysql` extension is enabled, then run `php artisan migrate`. Keep `.env` local and do not commit credentials or application keys.
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+## Run the application
+
+Start Laravel's local web server:
+
+```powershell
+php artisan serve
+```
+
+Open <http://127.0.0.1:8000>. The API health/endpoint overview is available at <http://127.0.0.1:8000/api>.
+
+To install and build the frontend assets:
+
+```powershell
+npm install
+npm run build
+```
+
+For frontend development with Vite, run `npm run dev` in a second terminal while `php artisan serve` is running.
+
+## API overview
+
+All API routes are under `/api`. Authenticated routes require the API token returned by login, sent as a Bearer token in the `Authorization` header.
+
+| Method | Endpoint | Description | Authentication |
+| --- | --- | --- | --- |
+| POST | `/api/auth/register` | Register an account | No |
+| POST | `/api/auth/login` | Log in | No |
+| POST | `/api/auth/forgot-password` | Request password reset | No |
+| POST | `/api/auth/reset-password` | Reset password | No |
+| POST | `/api/auth/logout` | Log out | Yes |
+| GET | `/api/auth/me` | Get the current account | Yes |
+| GET, PATCH | `/api/profile` | View or update profile | Yes |
+| POST | `/api/profile/photo` | Update profile photo | Yes |
+| GET | `/api/subjects` | List subjects | No |
+| GET | `/api/subjects/{subject}` | View a subject | No |
+| GET | `/api/tests` | List published tests | No |
+| GET | `/api/tests/{test}` | View a test | No |
+| POST | `/api/attempts` | Start an exam attempt | Yes |
+| GET | `/api/attempts` | View attempt history | Yes |
+| GET | `/api/attempts/{attempt}` | Resume an attempt | Yes |
+| GET | `/api/attempts/{attempt}/questions/{question}` | Get an attempt question | Yes |
+| PUT | `/api/attempts/{attempt}/answers/{question}` | Save an answer | Yes |
+| POST | `/api/attempts/{attempt}/submit` | Submit an attempt | Yes |
+| GET | `/api/results/{attempt}` | View a result | Yes |
+| GET | `/api/results/{attempt}/summary` | View a result summary | Yes |
+| GET | `/api/results/{attempt}/solutions` | List solutions | Yes |
+| GET | `/api/results/{attempt}/solutions/{question}` | View a question solution | Yes |
+| GET | `/api/admin/dashboard` | View admin dashboard | Yes |
+| POST, PATCH | `/api/admin/tests[/{test}]` | Create or update a test | Yes |
+| PUT | `/api/admin/tests/{test}/questions` | Replace a test's questions | Yes |
+| POST | `/api/admin/tests/{test}/publish` | Publish a test | Yes |
+
+The root API endpoint (`GET /api`) returns a concise endpoint overview. For request and response details, see the route definitions in `routes/api.php` and their controllers in `app/Http/Controllers/Api`.
+
+## Tests
+
+Run the Laravel test suite:
+
+```powershell
+php artisan test
+```
+
+Or use Composer's test script:
+
+```powershell
+composer test
+```
+
+## Useful directories
+
+- `app/Http/Controllers/Api` — API controllers
+- `app/Models` — Eloquent models
+- `routes/api.php` — API routes
+- `routes/web.php` — web page routes
+- `database/migrations` — database schema migrations
+- `tests` — PHPUnit tests
+- `resources` — Blade views and frontend source assets

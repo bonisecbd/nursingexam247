@@ -357,31 +357,38 @@ function AuthPanel({ mode, onModeChange, onSuccess, onClose }) {
 const adminMenu = [
   { heading: 'OVERVIEW', items: [{ id: 'dashboard', label: 'Dashboard', icon: 'dashboard' }] },
   { heading: 'PEOPLE & CONTENT', items: [
-    { id: 'users', label: 'Users', icon: 'users', soon: true },
-    { id: 'question-bank', label: 'Question Bank', icon: 'question', soon: true },
-    { id: 'model-tests', label: 'Model Tests', icon: 'book' },
+    { id: 'users', label: 'Users', icon: 'users', soon: true, children: ['All Users', 'Active Users', 'Blocked Users', 'Student Details', 'User Activity'] },
+    { id: 'question-bank', label: 'Question Bank', icon: 'question', soon: true, children: ['All Questions', 'Add Question', 'Bulk Import', 'Categories', 'Subjects', 'Difficulty Level', 'Question Reports'] },
+    { id: 'model-tests', label: 'Model Tests', icon: 'book', children: [
+      { id: 'model-tests-all', label: 'All Tests', page: 'model-tests' },
+      { id: 'model-tests-create', label: 'Create Test', action: 'create-test' },
+      { id: 'model-tests-drafts', label: 'Draft Tests', soon: true },
+      { id: 'model-tests-published', label: 'Published Tests', page: 'model-tests' },
+      { id: 'model-tests-scheduled', label: 'Scheduled Tests', soon: true },
+      { id: 'model-tests-categories', label: 'Test Categories', soon: true },
+    ] },
     { id: 'subjects', label: 'Subjects', icon: 'book', soon: true },
   ] },
   { heading: 'EXAMS & LEARNING', items: [
-    { id: 'exams', label: 'Exams & Attempts', icon: 'clock', soon: true },
-    { id: 'results', label: 'Results & Analytics', icon: 'chart', soon: true },
-    { id: 'leaderboard', label: 'Leaderboard', icon: 'trophy', soon: true },
-    { id: 'gamification', label: 'Gamification', icon: 'spark', soon: true },
-    { id: 'challenges', label: 'Challenges', icon: 'star', soon: true },
+    { id: 'exams', label: 'Exams', icon: 'clock', soon: true, children: ['Live Exams', 'Completed Exams', 'Exam Attempts', 'Suspicious Attempts'] },
+    { id: 'results', label: 'Results & Analytics', icon: 'chart', soon: true, children: ['All Results', 'Student Performance', 'Subject Performance', 'Test Performance', 'Analytics'] },
+    { id: 'leaderboard', label: 'Leaderboard', icon: 'trophy', soon: true, children: ['Daily', 'Weekly', 'Monthly', 'All Time'] },
+    { id: 'gamification', label: 'Gamification', icon: 'spark', soon: true, children: ['Points / XP', 'Levels', 'Badges', 'Achievements', 'Streaks'] },
+    { id: 'challenges', label: 'Challenges', icon: 'star', soon: true, children: ['Daily Challenge', 'Weekly Challenge', 'Competition'] },
   ] },
   { heading: 'COMMERCE', items: [
-    { id: 'coupons', label: 'Coupons', icon: 'tag', soon: true },
-    { id: 'referrals', label: 'Referrals', icon: 'users', soon: true },
-    { id: 'wallet', label: 'Wallet', icon: 'wallet', soon: true },
-    { id: 'payments', label: 'Payments', icon: 'payment', soon: true },
-    { id: 'subscriptions', label: 'Subscriptions', icon: 'star', soon: true },
+    { id: 'coupons', label: 'Coupons', icon: 'tag', soon: true, children: ['All Coupons', 'Create Coupon', 'Active', 'Expired'] },
+    { id: 'referrals', label: 'Referrals', icon: 'users', soon: true, children: ['Referral Users', 'Referral Statistics', 'Rewards', 'Pending Rewards'] },
+    { id: 'wallet', label: 'Wallet', icon: 'wallet', soon: true, children: ['User Wallets', 'Transactions', 'Credits', 'Debits'] },
+    { id: 'payments', label: 'Payments', icon: 'payment', soon: true, children: ['Transactions', 'Successful', 'Failed', 'Pending', 'Refunds'] },
+    { id: 'subscriptions', label: 'Subscriptions', icon: 'star', soon: true, children: ['Plans', 'Premium Users', 'Expired', 'Renewals'] },
   ] },
   { heading: 'ENGAGEMENT & SYSTEM', items: [
-    { id: 'notifications', label: 'Notifications', icon: 'bell', soon: true },
-    { id: 'advertising', label: 'Advertisement', icon: 'megaphone', soon: true },
-    { id: 'support', label: 'Support', icon: 'heart', soon: true },
-    { id: 'security', label: 'Admin & Security', icon: 'shield', soon: true },
-    { id: 'settings', label: 'Settings', icon: 'settings', soon: true },
+    { id: 'notifications', label: 'Notifications', icon: 'bell', soon: true, children: ['Send Notification', 'Push Notification', 'Announcements', 'Notification History'] },
+    { id: 'advertising', label: 'Advertisement', icon: 'megaphone', soon: true, children: ['Banners', 'Ads', 'Campaigns'] },
+    { id: 'support', label: 'Support', icon: 'heart', soon: true, children: ['Tickets', 'User Complaints', 'FAQ'] },
+    { id: 'security', label: 'Admin & Security', icon: 'shield', soon: true, children: ['Admin Users', 'Roles', 'Permissions', 'Login History', 'Audit Logs'] },
+    { id: 'settings', label: 'Settings', icon: 'settings', soon: true, children: ['General', 'Exam Settings', 'Payment Settings', 'Referral Settings', 'Gamification Settings', 'System Settings'] },
   ] },
 ]
 
@@ -391,6 +398,7 @@ function AdminDashboard({ user, token, onLogout, busy, sessionError, navigateTo 
   const [subjectList, setSubjectList] = useState([])
   const [tests, setTests] = useState([])
   const [activePage, setActivePage] = useState('dashboard')
+  const [expandedMenu, setExpandedMenu] = useState(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
@@ -403,8 +411,6 @@ function AdminDashboard({ user, token, onLogout, busy, sessionError, navigateTo 
 
   useEffect(() => {
     let active = true
-    setLoading(true)
-    setLoadError('')
     Promise.all([
       apiRequest('/admin/dashboard', { token }),
       apiRequest('/subjects?per_page=100', { token }),
@@ -429,6 +435,17 @@ function AdminDashboard({ user, token, onLogout, busy, sessionError, navigateTo 
     setSidebarOpen(false)
     setNotice('')
     if (id === 'dashboard') window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  function activateMenuItem(item) {
+    if (item.action === 'create-test') {
+      setCreateError('')
+      setCreateOpen(true)
+      setSidebarOpen(false)
+      return
+    }
+
+    selectPage(item.page || item.id)
   }
 
   async function createTest(event) {
@@ -458,6 +475,8 @@ function AdminDashboard({ user, token, onLogout, busy, sessionError, navigateTo 
       setCreateOpen(false)
       setActivePage('model-tests')
       setNotice(result.message || 'Draft model test created.')
+      setLoadError('')
+      setLoading(true)
       setReloadKey((value) => value + 1)
     } catch (requestError) {
       setCreateError(requestError.message)
@@ -468,17 +487,26 @@ function AdminDashboard({ user, token, onLogout, busy, sessionError, navigateTo 
 
   const number = (value) => value === null || value === undefined ? '—' : Number(value).toLocaleString()
   const metricCards = [
-    { label: 'Total students', value: metrics?.students, icon: 'users', tone: 'mint', note: `${number(metrics?.new_students_today)} joined today` },
+    { label: 'Total students', value: metrics?.students, icon: 'users', tone: 'mint', note: 'Registered student accounts' },
+    { label: 'New students today', value: metrics?.new_students_today, icon: 'users', tone: 'peach', note: 'Joined since midnight' },
     { label: 'Active students', value: metrics?.active_students, icon: 'heart', tone: 'lavender', note: 'Active student accounts' },
     { label: 'Questions', value: metrics?.questions, icon: 'question', tone: 'peach', note: 'In the question bank' },
+    { label: 'Total tests', value: metrics?.tests, icon: 'book', tone: 'mint', note: `${number(metrics?.draft_tests)} drafts` },
     { label: 'Published tests', value: metrics?.published_tests, icon: 'book', tone: 'yellow', note: `${number(metrics?.draft_tests)} drafts` },
     { label: 'Exams today', value: metrics?.attempts_today, icon: 'clock', tone: 'lavender', note: `${number(metrics?.finished_attempts)} completed all time` },
-    { label: 'Average score', value: metrics?.average_score == null ? null : `${Number(metrics.average_score).toFixed(1)}%`, icon: 'chart', tone: 'mint', note: 'Finished attempts' },
-    { label: 'Completion rate', value: metrics?.completion_rate == null ? null : `${Number(metrics.completion_rate).toFixed(1)}%`, icon: 'check', tone: 'peach', note: 'Submitted or expired attempts' },
+    { label: 'Completed attempts', value: metrics?.finished_attempts, icon: 'check', tone: 'mint', note: 'Submitted or expired exams' },
+    { label: 'Average score', value: metrics?.average_score == null ? '—' : `${Number(metrics.average_score).toFixed(1)}%`, icon: 'chart', tone: 'mint', note: metrics?.average_score == null ? 'No finished attempts yet' : 'Finished attempts' },
+    { label: 'Completion rate', value: metrics?.completion_rate == null ? '—' : `${Number(metrics.completion_rate).toFixed(1)}%`, icon: 'check', tone: 'peach', note: metrics?.completion_rate == null ? 'No exam attempts yet' : 'Submitted or expired attempts' },
+    { label: 'Premium users', value: null, icon: 'star', tone: 'lavender', note: 'Subscriptions module not connected' },
     { label: 'Revenue', value: null, icon: 'wallet', tone: 'yellow', note: 'Payments module not connected' },
   ]
   const maxAttempts = Math.max(1, ...activity.map((day) => day.attempts))
-  const selectedItem = adminMenu.flatMap((group) => group.items).find((item) => item.id === activePage)
+  const selectedItem = adminMenu.flatMap((group) => group.items.flatMap((item) => [
+    item,
+    ...(item.children || []).map((child) => typeof child === 'string'
+      ? { id: `${item.id}-${child.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, label: child, parent: item.id, soon: true }
+      : { ...child, parent: item.id }),
+  ])).find((item) => item.id === activePage)
 
   return (
     <main className="admin-app">
@@ -493,15 +521,26 @@ function AdminDashboard({ user, token, onLogout, busy, sessionError, navigateTo 
             <section className="admin-nav-group" key={group.heading}>
               <h2>{group.heading}</h2>
               {group.items.map((item) => (
-                <button
-                  className={`admin-nav-item${activePage === item.id ? ' admin-nav-active' : ''}${item.soon ? ' admin-nav-soon' : ''}`}
-                  key={item.id}
-                  onClick={() => selectPage(item.id)}
-                  title={item.soon ? 'This management module is not implemented yet.' : item.label}
-                >
-                  <Icon name={item.icon} size={17} /><span>{item.label}</span>
-                  {item.soon ? <small>SOON</small> : item.id === 'model-tests' && metrics ? <small>{number(metrics.tests)}</small> : null}
-                </button>
+                <div key={item.id}>
+                  <button
+                    className={`admin-nav-item${activePage === item.id ? ' admin-nav-active' : ''}${item.soon ? ' admin-nav-soon' : ''}`}
+                    onClick={() => {
+                      if (item.children) setExpandedMenu((current) => current === item.id ? null : item.id)
+                      activateMenuItem(item)
+                    }}
+                    title={item.soon ? 'This management module is not implemented yet.' : item.label}
+                  >
+                    <Icon name={item.icon} size={17} /><span>{item.label}</span>
+                    {item.soon ? <small>SOON</small> : item.id === 'model-tests' && metrics ? <small>{number(metrics.tests)}</small> : null}
+                    {item.children && <span className="admin-nav-caret">{expandedMenu === item.id ? '−' : '+'}</span>}
+                  </button>
+                  {item.children && expandedMenu === item.id && <div className="admin-subnav">{item.children.map((child) => {
+                    const subitem = typeof child === 'string'
+                      ? { id: `${item.id}-${child.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, label: child, page: `${item.id}-${child.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, soon: true }
+                      : child
+                    return <button className={`admin-subnav-item${activePage === (subitem.page || subitem.id) ? ' admin-subnav-active' : ''}`} key={subitem.id} onClick={() => activateMenuItem(subitem)}>{subitem.label}{subitem.soon && <small>SOON</small>}</button>
+                  })}</div>}
+                </div>
               ))}
             </section>
           ))}
@@ -543,7 +582,7 @@ function AdminDashboard({ user, token, onLogout, busy, sessionError, navigateTo 
                 </section>
                 <section className="admin-panel admin-status-panel">
                   <div className="admin-panel-heading"><div><span className="eyebrow">CONTENT SNAPSHOT</span><h2>Learning catalogue</h2></div><span className="admin-panel-icon"><Icon name="book" /></span></div>
-                  <div className="catalogue-row"><span className="catalogue-marker mint-marker"><Icon name="book" size={16} /></span><span><b>Active subjects</b><small>Ready for study</small></span><strong>{loading ? '…' : number(subjectList.length)}</strong></div>
+                  <div className="catalogue-row"><span className="catalogue-marker mint-marker"><Icon name="book" size={16} /></span><span><b>Active subjects</b><small>Ready for study</small></span><strong>{loading ? '…' : number(metrics?.active_subjects)}</strong></div>
                   <div className="catalogue-row"><span className="catalogue-marker peach-marker"><Icon name="check" size={16} /></span><span><b>Published model tests</b><small>Visible to students</small></span><strong>{loading ? '…' : number(metrics?.published_tests)}</strong></div>
                   <div className="catalogue-row"><span className="catalogue-marker yellow-marker"><Icon name="question" size={16} /></span><span><b>Question bank</b><small>Questions available</small></span><strong>{loading ? '…' : number(metrics?.questions)}</strong></div>
                 </section>
@@ -561,7 +600,7 @@ function AdminDashboard({ user, token, onLogout, busy, sessionError, navigateTo 
           )}
         </div>
       </section>
-      {createOpen && <div className="auth-backdrop admin-create-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !createBusy) setCreateOpen(false) }}><section className="auth-card admin-create-card" role="dialog" aria-modal="true" aria-labelledby="create-test-title"><button className="auth-close" onClick={() => setCreateOpen(false)} aria-label="Close create test form"><Icon name="close" /></button><div className="auth-eyebrow">MODEL TEST BUILDER</div><h2 id="create-test-title">Create a test draft</h2><p className="auth-intro">Set the exam basics first. Add questions and publish it from the content workflow.</p>{createError && <div className="form-error" role="alert">{createError}</div>}<form className="auth-form admin-test-form" onSubmit={createTest}><label>Test title<input name="title" required maxLength="255" placeholder="e.g. Nursing Practice Set 01" /></label><label>Subject<select name="subject_id" required defaultValue=""><option value="" disabled>Select a subject</option>{subjectList.map((subject) => <option value={subject.id} key={subject.id}>{subject.name}</option>)}</select></label><div className="admin-form-row"><label>Duration (minutes)<input name="duration_minutes" type="number" min="1" max="600" defaultValue="30" required /></label><label>Question count<input name="question_count" type="number" min="1" max="500" defaultValue="20" required /></label></div><div className="admin-form-row"><label>Total marks<input name="total_marks" type="number" min="0.01" step="0.01" defaultValue="20" required /></label><label>Passing score<input name="passing_score" type="number" min="0" step="0.01" defaultValue="10" required /></label></div><div className="admin-form-row"><label>Wrong answer penalty<input name="negative_marking" type="number" min="0" step="0.01" defaultValue="0.25" /></label><label className="admin-checkbox-label"><input name="is_negative_marking_enabled" type="checkbox" defaultChecked /> Enable negative marking</label></div><label>Description (optional)<input name="description" maxLength="10000" placeholder="Short description for this test" /></label><label className="admin-checkbox-label"><input name="is_premium" type="checkbox" /> Premium test</label><button className="button button-primary auth-submit" disabled={createBusy || subjectList.length === 0}>{createBusy ? 'Creating draft…' : 'Create test draft'} {!createBusy && <Icon name="arrow" size={17} />}</button>{subjectList.length === 0 && <span className="admin-data-note">An active subject is required before creating a test.</span>}</form></section></div>}
+      {createOpen && <div className="auth-backdrop admin-create-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !createBusy) setCreateOpen(false) }}><section className="auth-card admin-create-card" role="dialog" aria-modal="true" aria-labelledby="create-test-title"><button className="auth-close" onClick={() => setCreateOpen(false)} aria-label="Close create test form"><Icon name="close" /></button><div className="auth-eyebrow">MODEL TEST BUILDER</div><h2 id="create-test-title">Create a test draft</h2><p className="auth-intro">Set the exam basics. Question assignment and publishing are API-only until their admin screens are available.</p>{createError && <div className="form-error" role="alert">{createError}</div>}<form className="auth-form admin-test-form" onSubmit={createTest}><label>Test title<input name="title" required maxLength="255" placeholder="e.g. Nursing Practice Set 01" /></label><label>Subject<select name="subject_id" required defaultValue=""><option value="" disabled>Select a subject</option>{subjectList.map((subject) => <option value={subject.id} key={subject.id}>{subject.name}</option>)}</select></label><div className="admin-form-row"><label>Duration (minutes)<input name="duration_minutes" type="number" min="1" max="600" defaultValue="30" required /></label><label>Question count<input name="question_count" type="number" min="1" max="500" defaultValue="20" required /></label></div><div className="admin-form-row"><label>Total marks<input name="total_marks" type="number" min="0.01" step="0.01" defaultValue="20" required /></label><label>Passing score<input name="passing_score" type="number" min="0" step="0.01" defaultValue="10" required /></label></div><div className="admin-form-row"><label>Wrong answer penalty<input name="negative_marking" type="number" min="0" step="0.01" defaultValue="0.25" /></label><label className="admin-checkbox-label"><input name="is_negative_marking_enabled" type="checkbox" defaultChecked /> Enable negative marking</label></div><label>Description (optional)<input name="description" maxLength="10000" placeholder="Short description for this test" /></label><label className="admin-checkbox-label"><input name="is_premium" type="checkbox" /> Premium test</label><button className="button button-primary auth-submit" disabled={createBusy || subjectList.length === 0}>{createBusy ? 'Creating draft…' : 'Create test draft'} {!createBusy && <Icon name="arrow" size={17} />}</button>{subjectList.length === 0 && <span className="admin-data-note">An active subject is required before creating a test.</span>}</form></section></div>}
     </main>
   )
 }

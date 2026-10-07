@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\ApiToken;
 use App\Models\Subject;
 use App\Models\User;
 use App\Notifications\PasswordResetOtp;
@@ -48,6 +49,31 @@ class AuthProfileSubjectApiTest extends TestCase
         ]);
 
         $login->assertOk()->assertJsonPath('user.email', 'rafi@example.com');
+    }
+
+    public function test_authenticated_requests_do_not_reset_the_token_expiry(): void
+    {
+        $registration = $this->postJson('/api/auth/register', [
+            'name' => 'Rafi Ahmed',
+            'email' => 'rafi@example.com',
+            'password' => 'Password@123',
+            'password_confirmation' => 'Password@123',
+        ])->assertCreated();
+        $token = $registration->json('token');
+        $storedExpiry = ApiToken::query()
+            ->where('token', hash('sha256', $token))
+            ->value('expires_at');
+
+        $this->withToken($token)->getJson('/api/auth/me')->assertOk();
+        $this->withToken($token)->getJson('/api/profile')->assertOk();
+
+        $this->assertEquals(
+            $storedExpiry,
+            ApiToken::query()
+                ->where('token', hash('sha256', $token))
+                ->value('expires_at'),
+        );
+        $this->withToken($token)->getJson('/api/auth/me')->assertOk();
     }
 
     public function test_password_can_be_reset_with_the_emailed_otp_and_old_tokens_are_revoked(): void

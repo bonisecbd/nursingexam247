@@ -221,6 +221,18 @@ Request body: `{ "question_ids": [1, 2, 3] }`. The API distributes total marks e
 
 Publishing requires exactly `question_count` active questions from the test subject and assigned points equal to `total_marks`. Published tests cannot be edited; create a new draft for changes.
 
+## Admin Dashboard API
+
+### Get platform overview
+
+`GET /api/admin/dashboard` (Bearer token; `admin` or `editor` role required)
+
+Returns live aggregate metrics for student accounts, questions, tests, exam attempts, average finished-attempt score, completion rate, and seven-day exam activity. Metrics not backed by an implemented data module (including revenue, premium subscriptions, and referrals) are identified as unavailable and are not estimated.
+
+### Admin interface availability
+
+The frontend admin console is available at `/admin/dashboard`. The dashboard and published model-test view use implemented endpoints. Creating a test draft is supported; draft listing and question assignment are not yet available in the admin UI. Other planned admin menu modules are marked as coming soon until their APIs are implemented.
+
 ## Attempt API
 
 ### Start attempt
