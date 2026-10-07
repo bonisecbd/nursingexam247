@@ -346,13 +346,12 @@ Rules:
 
 ## 19. Admin Module
 
-**Status: Partially implemented.** `GET /api/admin/dashboard` returns role-protected aggregate metrics; model-test draft create/update/question-assignment/publish endpoints are available to admins and editors. The frontend console is at `/admin/dashboard`; user management, question CRUD/import, granular permissions, audit logs, and operational workflows are still planned. See [API.md](./API.md#admin-dashboard-api).
+**Status: Partially implemented.** `GET /api/admin/dashboard` returns role-protected aggregate metrics; model-test draft create/update/question-assignment/publish endpoints are available to admins and editors. Student user management is implemented for admins: paginated search/filter, student profile and recent exam activity, and account activation/blocking with session revocation. The frontend console is at `/admin/dashboard`. Question CRUD/import, granular permissions, audit logs, and other operational workflows are still planned. See [API.md](./API.md#admin-dashboard-api).
 
 **Purpose:** provide role-protected content and operations management, audit trails, and safe operational summaries.
 
 Remaining proposed endpoint families (all `/api/admin/...`):
 
-- `GET|POST|PATCH /users` and `POST /users/{user}/disable|enable` — user search/profile/status management; no password/token disclosure.
 - `GET|POST|PATCH|DELETE /questions` — question-bank CRUD, validation, activation, import/export under policy.
 - `GET|POST|PATCH /tests` and test publish/archive operations — model-test management.
 - `GET /payments` and `POST /payments/{payment}/refund` — inspect verified payments and request an authorized refund; gateway execution and audit required.

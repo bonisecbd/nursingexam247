@@ -229,9 +229,25 @@ Publishing requires exactly `question_count` active questions from the test subj
 
 Returns live aggregate metrics for student accounts, questions, tests, exam attempts, average finished-attempt score, completion rate, and seven-day exam activity. Metrics not backed by an implemented data module (including revenue, premium subscriptions, and referrals) are identified as unavailable and are not estimated.
 
+### Manage student accounts
+
+These endpoints require an authenticated `admin` role. Editors and students are denied access.
+
+- `GET /api/admin/users?search=ayesha&status=active&sort=newest&page=1&per_page=15` lists student accounts. `search` matches name, email, or phone; `status` is `all`, `active`, or `blocked`; `sort` is `newest` or `activity`; `per_page` is 1–100. The response includes paginated student summaries and overall active/blocked counts. Passwords and tokens are never returned.
+- `GET /api/admin/users/{user}` returns a student's profile, account state, aggregate exam activity, and up to 10 recent attempts. Non-student accounts return 404.
+- `PATCH /api/admin/users/{user}/status` changes a student's access state:
+
+```json
+{
+  "is_active": false
+}
+```
+
+Blocking a student revokes all their API tokens in the same transaction, so existing sessions stop working immediately. Reactivation permits a new login; it does not restore revoked tokens. Admin user management cannot change staff accounts.
+
 ### Admin interface availability
 
-The frontend admin console is available at `/admin/dashboard`. The dashboard and published model-test view use implemented endpoints. Creating a test draft is supported; draft listing and question assignment are not yet available in the admin UI. Other planned admin menu modules are marked as coming soon until their APIs are implemented.
+The frontend admin console is available at `/admin/dashboard`. The Users menu provides student search, active/blocked filters, profile details, exam activity, pagination, and block/reactivate actions. Personal student data and user controls are administrator-only. The dashboard and published model-test view use implemented endpoints. Creating a test draft is supported; draft listing and question assignment are not yet available in the admin UI. Other planned admin menu modules are marked as coming soon until their APIs are implemented.
 
 ## Attempt API
 

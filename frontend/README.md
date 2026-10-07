@@ -50,4 +50,6 @@ The demo admin account is created only when it does not already exist, so runnin
 
 Admins and editors are sent to `/admin/dashboard` after login. Opening that URL directly checks the saved API session and role; unauthenticated users are asked to sign in, while non-staff accounts are denied access.
 
+The admin console includes live student/question/test/exam metrics, a seven-day exam-activity chart, catalogue summaries, and a collapsible management sidebar. Dashboard metrics are served by `GET /api/admin/dashboard` for admins and editors. The Users section is restricted to admins and supports student search, status filters, profile details, exam activity, and account activation/blocking; blocking revokes active sessions. Model-test draft creation is available; draft lists, question assignment, revenue, and other planned platform modules are clearly marked unavailable until their APIs and admin screens are implemented.
+
 Run checks with `npm run lint` and `npm run build`.

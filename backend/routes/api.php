@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AdminDashboardController;
+use App\Http\Controllers\Api\AdminUserController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ExamAttemptController;
 use App\Http\Controllers\Api\ModelTestController;
@@ -22,6 +23,10 @@ Route::get('/', function () {
             'profile' => 'GET|PATCH /api/profile',
             'subjects' => 'GET /api/subjects',
             'tests' => 'GET /api/tests',
+            'admin_dashboard' => 'GET /api/admin/dashboard',
+            'admin_users' => 'GET /api/admin/users',
+            'admin_user_details' => 'GET /api/admin/users/{user}',
+            'admin_user_status' => 'PATCH /api/admin/users/{user}/status',
             'admin_tests' => 'POST /api/admin/tests',
             'attempts' => 'POST /api/attempts',
             'attempt_history' => 'GET /api/attempts',
@@ -68,6 +73,9 @@ Route::get('/tests/{test}', [ModelTestController::class, 'show']);
 
 Route::middleware(AuthenticateApiToken::class)->prefix('admin')->group(function (): void {
     Route::get('/dashboard', AdminDashboardController::class);
+    Route::get('/users', [AdminUserController::class, 'index']);
+    Route::get('/users/{user}', [AdminUserController::class, 'show']);
+    Route::patch('/users/{user}/status', [AdminUserController::class, 'updateStatus']);
     Route::post('/tests', [ModelTestController::class, 'store']);
     Route::patch('/tests/{test}', [ModelTestController::class, 'update']);
     Route::put('/tests/{test}/questions', [ModelTestController::class, 'replaceQuestions']);

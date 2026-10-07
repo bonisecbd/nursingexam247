@@ -111,6 +111,9 @@ All API routes are under `/api`. Authenticated routes require the API token retu
 | GET | `/api/results/{attempt}/solutions` | List solutions | Yes |
 | GET | `/api/results/{attempt}/solutions/{question}` | View a question solution | Yes |
 | GET | `/api/admin/dashboard` | View admin dashboard | Yes |
+| GET | `/api/admin/users` | Search and list student accounts (admin only) | Yes |
+| GET | `/api/admin/users/{user}` | View a student profile and recent exam activity (admin only) | Yes |
+| PATCH | `/api/admin/users/{user}/status` | Activate or block a student account (admin only) | Yes |
 | POST, PATCH | `/api/admin/tests[/{test}]` | Create or update a test | Yes |
 | PUT | `/api/admin/tests/{test}/questions` | Replace a test's questions | Yes |
 | POST | `/api/admin/tests/{test}/publish` | Publish a test | Yes |

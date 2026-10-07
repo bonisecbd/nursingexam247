@@ -52,6 +52,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'is_active' => 'boolean',
             'date_of_birth' => 'date',
         ];
     }
@@ -59,5 +60,10 @@ class User extends Authenticatable
     public function apiTokens(): HasMany
     {
         return $this->hasMany(ApiToken::class);
+    }
+
+    public function attempts(): HasMany
+    {
+        return $this->hasMany(ExamAttempt::class);
     }
 }

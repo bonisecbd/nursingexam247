@@ -61,6 +61,7 @@ function Icon({ name, size = 20 }) {
     info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></>,
     chart: <><path d="M3 3v18h18" /><path d="m19 9-5 5-4-4-5 5" /></>,
     question: <><circle cx="12" cy="12" r="9" /><path d="M9.5 9a2.5 2.5 0 1 1 4.3 1.7c-1.2 1.1-1.8 1.3-1.8 3" /><path d="M12 17h.01" /></>,
+    search: <><circle cx="10.8" cy="10.8" r="6.8" /><path d="m16 16 5 5" /></>,
     trophy: <><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z" /><path d="M7 6H4v2a4 4 0 0 0 4 4M17 6h3v2a4 4 0 0 1-4 4" /></>,
     tag: <><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8" /><circle cx="7.5" cy="7.5" r="1" /></>,
     wallet: <><rect x="3" y="5" width="18" height="15" rx="2" /><path d="M3 8h18M16 14h2" /><path d="M6 5V3h12" /></>,
@@ -357,7 +358,13 @@ function AuthPanel({ mode, onModeChange, onSuccess, onClose }) {
 const adminMenu = [
   { heading: 'OVERVIEW', items: [{ id: 'dashboard', label: 'Dashboard', icon: 'dashboard' }] },
   { heading: 'PEOPLE & CONTENT', items: [
-    { id: 'users', label: 'Users', icon: 'users', soon: true, children: ['All Users', 'Active Users', 'Blocked Users', 'Student Details', 'User Activity'] },
+    { id: 'users', label: 'Users', icon: 'users', adminOnly: true, children: [
+      { id: 'users-all', label: 'All Users', page: 'users-all' },
+      { id: 'users-active', label: 'Active Users', page: 'users-active' },
+      { id: 'users-blocked', label: 'Blocked Users', page: 'users-blocked' },
+      { id: 'users-details', label: 'Student Details', page: 'users-details' },
+      { id: 'users-activity', label: 'User Activity', page: 'users-activity' },
+    ] },
     { id: 'question-bank', label: 'Question Bank', icon: 'question', soon: true, children: ['All Questions', 'Add Question', 'Bulk Import', 'Categories', 'Subjects', 'Difficulty Level', 'Question Reports'] },
     { id: 'model-tests', label: 'Model Tests', icon: 'book', children: [
       { id: 'model-tests-all', label: 'All Tests', page: 'model-tests' },
@@ -392,6 +399,168 @@ const adminMenu = [
   ] },
 ]
 
+function AdminUsers({ token, page, onNotice }) {
+  const [listResult, setListResult] = useState(null)
+  const [searchText, setSearchText] = useState('')
+  const [search, setSearch] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [reloadKey, setReloadKey] = useState(0)
+  const [selectedId, setSelectedId] = useState(null)
+  const [detailsResult, setDetailsResult] = useState(null)
+  const [updatingId, setUpdatingId] = useState(null)
+  const [actionError, setActionError] = useState('')
+  const status = page === 'users-active' ? 'active' : page === 'users-blocked' ? 'blocked' : 'all'
+  const activityView = page === 'users-activity'
+  const title = page === 'users-active' ? 'Active students'
+    : page === 'users-blocked' ? 'Blocked students'
+      : activityView ? 'User activity'
+        : page === 'users-details' ? 'Student details'
+          : 'All users'
+  const requestKey = `${status}:${activityView}:${currentPage}:${search}:${reloadKey}`
+
+  useEffect(() => {
+    let active = true
+    const params = new URLSearchParams({
+      status,
+      sort: activityView ? 'activity' : 'newest',
+      per_page: '15',
+      page: String(currentPage),
+    })
+    if (search) params.set('search', search)
+    apiRequest(`/admin/users?${params.toString()}`, { token })
+      .then((result) => {
+        if (!active) return
+        setListResult({ key: requestKey, users: result.data || [], meta: result.meta || null })
+      })
+      .catch((requestError) => {
+        if (active) setListResult({ key: requestKey, users: [], meta: null, error: requestError.message })
+      })
+
+    return () => { active = false }
+  }, [activityView, currentPage, reloadKey, requestKey, search, status, token])
+
+  useEffect(() => {
+    if (selectedId === null) return undefined
+
+    let active = true
+    apiRequest(`/admin/users/${selectedId}`, { token })
+      .then((result) => {
+        if (active) setDetailsResult({ key: `${selectedId}:${reloadKey}`, result })
+      })
+      .catch((requestError) => {
+        if (active) setDetailsResult({ key: `${selectedId}:${reloadKey}`, error: requestError.message })
+      })
+
+    return () => { active = false }
+  }, [reloadKey, selectedId, token])
+
+  const listIsCurrent = listResult?.key === requestKey
+  const users = listIsCurrent ? listResult.users : []
+  const meta = listIsCurrent ? listResult.meta : null
+  const loading = !listIsCurrent
+  const error = listIsCurrent ? listResult.error : ''
+  const detailsKey = selectedId === null ? null : `${selectedId}:${reloadKey}`
+  const detailsIsCurrent = detailsKey !== null && detailsResult?.key === detailsKey
+  const details = detailsIsCurrent ? detailsResult.result : null
+  const detailsLoading = selectedId !== null && !detailsIsCurrent
+  const detailsError = detailsIsCurrent ? detailsResult.error : ''
+
+  function submitSearch(event) {
+    event.preventDefault()
+    setCurrentPage(1)
+    setSearch(searchText.trim())
+  }
+
+  async function updateStatus(student) {
+    const nextStatus = !student.is_active
+    const action = nextStatus ? 'activate' : 'block'
+    if (!window.confirm(`Are you sure you want to ${action} ${student.name}'s account?${nextStatus ? '' : ' Their active API sessions will be revoked.'}`)) return
+
+    setUpdatingId(student.id)
+    setActionError('')
+    try {
+      const result = await apiRequest(`/admin/users/${student.id}/status`, {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({ is_active: nextStatus }),
+      })
+      onNotice(result.message)
+      setReloadKey((value) => value + 1)
+    } catch (requestError) {
+      setActionError(requestError.message)
+    } finally {
+      setUpdatingId(null)
+    }
+  }
+
+  const number = (value) => Number(value || 0).toLocaleString()
+  const date = (value) => value ? new Date(value).toLocaleDateString() : 'Never'
+
+  return (
+    <section className="admin-module-page admin-users-page">
+      <div className="admin-page-heading">
+        <div><span className="eyebrow">PEOPLE MANAGEMENT</span><h1>{title}</h1><p>Search student accounts, review profiles and exam activity, and manage account access.</p></div>
+      </div>
+      <div className="admin-module-stats admin-users-stats">
+        <span><b>{meta ? number(meta.total) : '—'}</b> matching students</span>
+        <span><b>{meta ? number(meta.active) : '—'}</b> active accounts</span>
+        <span><b>{meta ? number(meta.blocked) : '—'}</b> blocked accounts</span>
+      </div>
+      <section className="admin-panel admin-users-panel">
+        <div className="admin-users-toolbar">
+          <div><span className="eyebrow">{activityView ? 'RECENTLY ACTIVE FIRST' : status === 'all' ? 'STUDENT ACCOUNTS' : `${status.toUpperCase()} STUDENT ACCOUNTS`}</span><h2>{activityView ? 'Account activity' : 'Student directory'}</h2></div>
+          <form className="admin-user-search" onSubmit={submitSearch}>
+            <label className="sr-only" htmlFor="admin-user-search">Search students</label>
+            <input id="admin-user-search" value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder="Name, email or phone" maxLength={100} />
+            <button className="button button-outline" type="submit"><Icon name="search" size={16} /> Search</button>
+          </form>
+        </div>
+        {actionError && <div className="form-error dashboard-error" role="alert">{actionError}</div>}
+        {error && <div className="form-error dashboard-error" role="alert">{error}</div>}
+        {loading ? <div className="dashboard-loading">Loading student accounts…</div> : users.length ? (
+          <div className="admin-user-table-wrap">
+            <table className={`admin-user-table${activityView ? ' admin-user-activity-table' : ''}`}>
+              <thead><tr><th>Student</th><th>Contact</th>{activityView && <><th>Exam attempts</th><th>Last activity</th></>}<th>Status</th><th>Joined</th><th>Actions</th></tr></thead>
+              <tbody>{users.map((student) => <tr key={student.id}>
+                <td><b>{student.name}</b><small>Student #{student.id}</small></td>
+                <td>{student.email}<small>{student.phone || 'No phone added'}</small></td>
+                {activityView && <><td>{number(student.attempts_count)}</td><td>{date(student.last_activity_at)}</td></>}
+                <td><span className={`admin-user-status ${student.is_active ? 'is-active' : 'is-blocked'}`}>{student.is_active ? 'Active' : 'Blocked'}</span></td>
+                <td>{date(student.created_at)}</td>
+                <td><div className="admin-user-actions"><button className="admin-user-view" onClick={() => setSelectedId(student.id)}>View details</button><button className={`admin-user-toggle${student.is_active ? ' is-block' : ''}`} onClick={() => updateStatus(student)} disabled={updatingId === student.id}>{updatingId === student.id ? 'Saving…' : student.is_active ? 'Block' : 'Activate'}</button></div></td>
+              </tr>)}</tbody>
+            </table>
+          </div>
+        ) : !error ? <div className="admin-users-empty"><Icon name="users" size={22} /><b>No students found</b><span>Try changing the search or account status filter.</span></div> : null}
+        {meta && meta.last_page > 1 && <div className="admin-users-pagination"><span>Page {meta.current_page} of {meta.last_page} · {number(meta.total)} students</span><div><button className="button button-outline" onClick={() => setCurrentPage((value) => Math.max(1, value - 1))} disabled={meta.current_page <= 1 || loading}>Previous</button><button className="button button-outline" onClick={() => setCurrentPage((value) => Math.min(meta.last_page, value + 1))} disabled={meta.current_page >= meta.last_page || loading}>Next</button></div></div>}
+      </section>
+      <p className="admin-data-note"><Icon name="shield" size={15} /> Personal student data and account controls are available to administrators only. Blocking a student revokes all active API sessions.</p>
+      {selectedId !== null && <div className="auth-backdrop admin-user-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedId(null) }}>
+        <section className="admin-user-detail" role="dialog" aria-modal="true" aria-labelledby="admin-user-detail-title">
+          <button className="auth-close" onClick={() => setSelectedId(null)} aria-label="Close student details"><Icon name="close" /></button>
+          {detailsLoading ? <div className="dashboard-loading">Loading student details…</div> : detailsError ? <div className="form-error" role="alert">{detailsError}</div> : details && <>
+            <span className="eyebrow">STUDENT PROFILE</span>
+            <h2 id="admin-user-detail-title">{details.user.name}</h2>
+            <p className="admin-user-detail-email">{details.user.email}</p>
+            <span className={`admin-user-status ${details.user.is_active ? 'is-active' : 'is-blocked'}`}>{details.user.is_active ? 'Active account' : 'Blocked account'}</span>
+            <div className="admin-user-profile-grid">
+              <div><small>Phone</small><b>{details.user.phone || 'Not provided'}</b></div>
+              <div><small>Date of birth</small><b>{details.user.date_of_birth || 'Not provided'}</b></div>
+              <div><small>Gender</small><b>{details.user.gender || 'Not provided'}</b></div>
+              <div><small>Email verified</small><b>{details.user.email_verified_at ? date(details.user.email_verified_at) : 'Not verified'}</b></div>
+              <div><small>Joined</small><b>{date(details.user.created_at)}</b></div>
+              <div><small>Address</small><b>{details.user.address || 'Not provided'}</b></div>
+            </div>
+            <div className="admin-user-activity-summary"><span><b>{number(details.activity.total_attempts)}</b> attempts</span><span><b>{number(details.activity.completed_attempts)}</b> completed</span><span><b>{details.activity.average_score == null ? '—' : `${Number(details.activity.average_score).toFixed(1)}%`}</b> average score</span></div>
+            <h3>Recent exam activity</h3>
+            {details.activity.recent_attempts.length ? <div className="admin-user-attempts">{details.activity.recent_attempts.map((attempt) => <div key={attempt.id}><span><b>{attempt.test?.title || 'Unavailable test'}</b><small>{attempt.started_at ? new Date(attempt.started_at).toLocaleString() : 'Date unavailable'}</small></span><span className={`admin-user-attempt-status ${attempt.status}`}>{attempt.status.replace('_', ' ')}</span><b>{attempt.percentage == null ? '—' : `${Number(attempt.percentage).toFixed(1)}%`}</b></div>)}</div> : <p className="empty-state">No exam attempts recorded for this student yet.</p>}
+          </>}
+        </section>
+      </div>}
+    </section>
+  )
+}
+
 function AdminDashboard({ user, token, onLogout, busy, sessionError, navigateTo }) {
   const [metrics, setMetrics] = useState(null)
   const [activity, setActivity] = useState([])
@@ -408,6 +577,7 @@ function AdminDashboard({ user, token, onLogout, busy, sessionError, navigateTo 
   const [notice, setNotice] = useState('')
   const [reloadKey, setReloadKey] = useState(0)
   const adminName = user.name.trim().split(/\s+/)[0]
+  const isAdmin = user.role === 'admin'
 
   useEffect(() => {
     let active = true
@@ -523,12 +693,12 @@ function AdminDashboard({ user, token, onLogout, busy, sessionError, navigateTo 
               {group.items.map((item) => (
                 <div key={item.id}>
                   <button
-                    className={`admin-nav-item${activePage === item.id ? ' admin-nav-active' : ''}${item.soon ? ' admin-nav-soon' : ''}`}
+                    className={`admin-nav-item${activePage === item.id ? ' admin-nav-active' : ''}${item.soon || (item.adminOnly && !isAdmin) ? ' admin-nav-soon' : ''}`}
                     onClick={() => {
                       if (item.children) setExpandedMenu((current) => current === item.id ? null : item.id)
-                      activateMenuItem(item)
+                      if (!item.adminOnly || isAdmin) activateMenuItem(item)
                     }}
-                    title={item.soon ? 'This management module is not implemented yet.' : item.label}
+                    title={item.soon ? 'This management module is not implemented yet.' : item.adminOnly && !isAdmin ? 'User management is restricted to administrators.' : item.label}
                   >
                     <Icon name={item.icon} size={17} /><span>{item.label}</span>
                     {item.soon ? <small>SOON</small> : item.id === 'model-tests' && metrics ? <small>{number(metrics.tests)}</small> : null}
@@ -538,7 +708,7 @@ function AdminDashboard({ user, token, onLogout, busy, sessionError, navigateTo 
                     const subitem = typeof child === 'string'
                       ? { id: `${item.id}-${child.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, label: child, page: `${item.id}-${child.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, soon: true }
                       : child
-                    return <button className={`admin-subnav-item${activePage === (subitem.page || subitem.id) ? ' admin-subnav-active' : ''}`} key={subitem.id} onClick={() => activateMenuItem(subitem)}>{subitem.label}{subitem.soon && <small>SOON</small>}</button>
+                    return <button className={`admin-subnav-item${activePage === (subitem.page || subitem.id) ? ' admin-subnav-active' : ''}`} key={subitem.id} onClick={() => activateMenuItem(subitem)} disabled={item.adminOnly && !isAdmin} title={item.adminOnly && !isAdmin ? 'User management is restricted to administrators.' : undefined}>{subitem.label}{subitem.soon && <small>SOON</small>}{item.adminOnly && !isAdmin && <small>ADMIN</small>}</button>
                   })}</div>}
                 </div>
               ))}
@@ -595,6 +765,10 @@ function AdminDashboard({ user, token, onLogout, busy, sessionError, navigateTo 
             </>
           ) : activePage === 'model-tests' ? (
             <section className="admin-module-page"><div className="admin-page-heading"><div><span className="eyebrow">LEARNING CONTENT</span><h1>Model tests</h1><p>Create and publish practice exams for students.</p></div><button className="button button-primary" onClick={() => { setCreateError(''); setCreateOpen(true) }}><Icon name="arrow" size={17} /> Create model test</button></div><div className="admin-module-stats"><span><b>{number(metrics?.tests)}</b> total tests</span><span><b>{number(metrics?.published_tests)}</b> published</span><span><b>{number(metrics?.draft_tests)}</b> drafts</span></div><div className="admin-panel admin-recent-panel"><div className="admin-panel-heading"><div><span className="eyebrow">PUBLIC CATALOGUE</span><h2>Published tests</h2></div></div>{loading ? <div className="dashboard-loading">Loading tests…</div> : tests.length ? <div className="admin-test-table"><div className="admin-table-row admin-table-head"><span>TEST</span><span>SUBJECT</span><span>QUESTIONS</span><span>STATUS</span></div>{tests.map((test) => <div className="admin-table-row" key={test.id}><span><b>{test.title}</b><small>{test.code}</small></span><span>{test.subject?.name || '—'}</span><span>{number(test.question_count)}</span><span><i className="published-dot" /> Published</span></div>)}</div> : <p className="empty-state">No published tests yet. Draft tests can be created, but assigning question sets requires the question-management API.</p>}</div><p className="admin-data-note"><Icon name="info" size={15} /> Draft listing and question assignment are not yet available in the admin interface.</p></section>
+          ) : activePage === 'model-tests' ? (
+            <section className="admin-module-page"><div className="admin-page-heading"><div><span className="eyebrow">LEARNING CONTENT</span><h1>Model tests</h1><p>Create and publish practice exams for students.</p></div><button className="button button-primary" onClick={() => { setCreateError(''); setCreateOpen(true) }}><Icon name="arrow" size={17} /> Create model test</button></div><div className="admin-module-stats"><span><b>{number(metrics?.tests)}</b> total tests</span><span><b>{number(metrics?.published_tests)}</b> published</span><span><b>{number(metrics?.draft_tests)}</b> drafts</span></div><div className="admin-panel admin-recent-panel"><div className="admin-panel-heading"><div><span className="eyebrow">PUBLIC CATALOGUE</span><h2>Published tests</h2></div></div>{loading ? <div className="dashboard-loading">Loading tests…</div> : tests.length ? <div className="admin-test-table"><div className="admin-table-row admin-table-head"><span>TEST</span><span>SUBJECT</span><span>QUESTIONS</span><span>STATUS</span></div>{tests.map((test) => <div className="admin-table-row" key={test.id}><span><b>{test.title}</b><small>{test.code}</small></span><span>{test.subject?.name || '—'}</span><span>{number(test.question_count)}</span><span><i className="published-dot" /> Published</span></div>)}</div> : <p className="empty-state">No published tests yet. Draft tests can be created, but assigning question sets requires the question-management API.</p>}</div><p className="admin-data-note"><Icon name="info" size={15} /> Draft listing and question assignment are not yet available in the admin interface.</p></section>
+          ) : activePage === 'users' || activePage.startsWith('users-') ? (
+            <AdminUsers token={token} page={activePage} onNotice={setNotice} />
           ) : (
             <section className="admin-coming-page"><span className="admin-coming-icon"><Icon name={selectedItem?.icon || 'settings'} size={27} /></span><span className="eyebrow">PLATFORM MODULE</span><h1>{selectedItem?.label || 'Management'}</h1><p>This section is part of the platform management plan, but its management API and interface are not implemented yet.</p><div className="admin-coming-status"><Icon name="clock" size={16} /> Coming soon — no data or actions are available here yet.</div><button className="button button-outline" onClick={() => selectPage('dashboard')}>Back to dashboard <Icon name="arrow" size={15} /></button></section>
           )}

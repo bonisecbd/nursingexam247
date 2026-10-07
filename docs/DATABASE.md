@@ -80,7 +80,7 @@ Use MySQL 8.0+ or MariaDB 10.11+. The database is the source of truth for tests,
 
 ### API authentication and password reset
 
-- `api_tokens`: stores SHA-256 hashes of 30-day bearer tokens; each token belongs to one user and is revoked on logout or password reset.
+- `api_tokens`: stores SHA-256 hashes of 30-day bearer tokens; each token belongs to one user and is revoked on logout or password reset. `expires_at` is a `datetime` and must not change when `last_used_at` is updated.
 - `password_reset_otps`: stores hashed, expiring email OTPs and failed verification attempt counts.
 
 ## Planned product module data
