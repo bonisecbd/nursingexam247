@@ -1,0 +1,53 @@
+# NurseExam247 frontend
+
+React and Vite frontend for the NurseExam247 Laravel API.
+
+## Run locally
+
+1. Start Laravel from `backend`:
+
+   ```powershell
+   C:\xampp\php\php.exe artisan serve
+   ```
+
+2. Start the frontend from `frontend`:
+
+   ```powershell
+   npm install
+   npm run dev
+   ```
+
+Vite proxies `/api` requests to `http://127.0.0.1:8000` by default. Set `VITE_API_PROXY_TARGET` in the shell environment before starting Vite if Laravel is running elsewhere.
+
+For a deployed frontend, set `VITE_API_BASE_URL` to the API base URL ending in `/api` at build time. When unset, the app uses the same-origin `/api` path.
+
+## Accounts and roles
+
+The registration form creates student accounts, matching the API's server-enforced role. Users cannot promote themselves through the frontend; admins and editors must be assigned by the site team. Login responses provide the user's actual role, which is shown in the signed-in study dashboard.
+
+The frontend supports login, registration, logout, OTP password reset, and loading published subjects and tests for signed-in users.
+
+### Local demo login
+
+The backend database seeder creates this development-only account:
+
+| Email | Password | Role |
+| --- | --- | --- |
+| `test@example.com` | `password` | Student |
+| `admin@nurseexam247.test` | `Admin@12345` | Admin |
+
+To create the account and sample subjects in a local database, run this from `backend`:
+
+```powershell
+C:\xampp\php\php.exe artisan db:seed
+```
+
+These known passwords are only for local development. Never use them in production or expose the seeded demo accounts on a public deployment. Register a personal account for normal use.
+
+The demo admin account is created only when it does not already exist, so running the seeder again will not change an existing account's password or role.
+
+### Admin dashboard
+
+Admins and editors are sent to `/admin/dashboard` after login. Opening that URL directly checks the saved API session and role; unauthenticated users are asked to sign in, while non-staff accounts are denied access.
+
+Run checks with `npm run lint` and `npm run build`.

@@ -1,0 +1,36 @@
+# Dependencies
+vendor/
+node_modules/
+frontend/node_modules/
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Laravel
+bootstrap/cache/
+storage/*.key
+storage/logs/*.log
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/views/*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Compiled
+public/build/
+public/hot
+public/storage
+*.log
+
+# Composer
+composer.phar
