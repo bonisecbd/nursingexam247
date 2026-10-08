@@ -22,6 +22,7 @@ class ProfileController extends Controller
             'date_of_birth' => ['sometimes', 'nullable', 'date', 'before:today'],
             'gender' => ['sometimes', 'nullable', 'string', 'in:female,male,other,prefer_not_to_say'],
             'address' => ['sometimes', 'nullable', 'string', 'max:1000'],
+            'leaderboard_opt_in' => ['sometimes', 'boolean'],
         ]);
 
         $request->user()->update($validated);
@@ -67,6 +68,7 @@ class ProfileController extends Controller
             'gender' => $user->gender,
             'address' => $user->address,
             'avatar_url' => $user->avatar_path ? Storage::disk('public')->url($user->avatar_path) : null,
+            'leaderboard_opt_in' => $user->leaderboard_opt_in,
         ];
     }
 }

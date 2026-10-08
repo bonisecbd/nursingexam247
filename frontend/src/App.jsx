@@ -1626,6 +1626,54 @@ function AdminDashboard({ user, token, onLogout, busy, sessionError, navigateTo 
   )
 }
 
+function LeaderboardPanel({ token }) {
+  const [period, setPeriod] = useState('daily')
+  const [result, setResult] = useState(null)
+  const requestKey = `${period}:${token}`
+
+  useEffect(() => {
+    let active = true
+    Promise.all([
+      apiRequest(`/leaderboards?period=${period}&per_page=10`, { token }),
+      apiRequest(`/leaderboards/${period}/me`, { token }),
+    ]).then(([leaders, ownPosition]) => {
+      if (active) setResult({ key: requestKey, leaders, ownPosition })
+    }).catch((error) => {
+      if (active) setResult({ key: requestKey, error: error.message })
+    })
+    return () => { active = false }
+  }, [period, token, requestKey])
+
+  const current = result?.key === requestKey ? result : null
+  const loading = !current
+  const leaders = current?.leaders?.data || []
+  const position = current?.ownPosition?.position
+
+  return (
+    <section className="dashboard-section dashboard-leaderboard">
+      <div className="dashboard-section-heading"><div><span className="eyebrow">STUDY COMMUNITY</span><h2>Leaderboard</h2></div><span className="dashboard-count">{current?.leaders?.meta?.timezone || 'Asia/Dhaka'}</span></div>
+      <div className="leaderboard-period-tabs" role="group" aria-label="Leaderboard period">
+        {['daily', 'weekly', 'monthly', 'overall'].map((item) => <button type="button" key={item} className={period === item ? 'is-active' : ''} onClick={() => setPeriod(item)}>{item}</button>)}
+      </div>
+      {current?.error && <div className="form-error dashboard-error" role="alert">{current.error}</div>}
+      {current && !current.error && <div className="leaderboard-my-rank" role="status">
+        {current.ownPosition.leaderboard_opt_in
+          ? position?.rank ? <>Your rank: <b>#{position.rank}</b> · {Number(position.score).toFixed(2)} points across {position.eligible_test_count} tests</> : 'You are not ranked for this period yet. Complete a test to join the board.'
+          : <>Your leaderboard profile is hidden. Opt in from <b>Edit profile</b> to appear in rankings.</>}
+      </div>}
+      {loading ? <div className="dashboard-loading">Loading leaderboard…</div> : leaders.length ? <div className="leaderboard-list">
+        {leaders.map((leader) => <div className="leaderboard-row" key={leader.rank}>
+          <span className={`leaderboard-rank${leader.rank <= 3 ? ' top-rank' : ''}`}>{leader.rank}</span>
+          {leader.avatar_url ? <img src={leader.avatar_url} alt="" /> : <span className="leaderboard-avatar">{leader.display_name.charAt(0).toUpperCase()}</span>}
+          <b>{leader.display_name}</b>
+          <span>{Number(leader.score).toFixed(2)} <small>pts</small></span>
+          <small>{leader.eligible_test_count} tests</small>
+        </div>)}
+      </div> : !current?.error ? <p className="empty-state">No opted-in students have completed a test in this period yet.</p> : null}
+    </section>
+  )
+}
+
 function Dashboard({ user, token, onLogout, busy, sessionError, isAdminRoute = false, onNavigate, onUserUpdated }) {
   const [tests, setTests] = useState([])
   const [subjectList, setSubjectList] = useState([])
@@ -1674,6 +1722,7 @@ function Dashboard({ user, token, onLogout, busy, sessionError, isAdminRoute = f
       date_of_birth: fields.get('date_of_birth') || null,
       gender: fields.get('gender') || null,
       address: fields.get('address').trim() || null,
+      leaderboard_opt_in: fields.get('leaderboard_opt_in') === 'on',
     }
 
     try {
@@ -1734,6 +1783,7 @@ function Dashboard({ user, token, onLogout, busy, sessionError, isAdminRoute = f
           <span><b>{isStaff ? `${user.role === 'admin' ? 'Administrator' : 'Editor'} account` : 'Your student account is ready'}</b><small>{isStaff ? 'You’re signed in with your assigned staff role.' : 'Pick a subject below and make today count, at your own pace.'}</small></span>
           <span className="role-badge">{user.role}</span>
         </div>
+        {!isStaff && <LeaderboardPanel token={token} />}
         {loadError && <div className="form-error dashboard-error" role="alert">{loadError}</div>}
         <section className="dashboard-section">
           <div className="dashboard-section-heading"><div><span className="eyebrow">{isAdminRoute ? 'LEARNING CATALOGUE' : 'START WHERE YOU ARE'}</span><h2>{isAdminRoute ? 'Subjects' : 'Your subjects'}</h2></div><span className="dashboard-count">{subjectList.length} available</span></div>
@@ -1777,6 +1827,7 @@ function Dashboard({ user, token, onLogout, busy, sessionError, isAdminRoute = f
             </div>
             <label>Gender<select name="gender" defaultValue={profile.gender || ''}><option value="">Prefer not to specify</option><option value="female">Female</option><option value="male">Male</option><option value="other">Other</option><option value="prefer_not_to_say">Prefer not to say</option></select></label>
             <label>Address<textarea name="address" maxLength="1000" defaultValue={profile.address || ''} rows="3" /></label>
+            <label className="profile-leaderboard-opt-in"><input name="leaderboard_opt_in" type="checkbox" defaultChecked={profile.leaderboard_opt_in} /> <span><b>Show me on the public leaderboard</b><small>If enabled, your name and profile photo can appear with your score and test count. You can opt out any time.</small></span></label>
             <button className="button button-primary auth-submit" type="submit" disabled={profileBusy || photoBusy}>{profileBusy ? 'Saving profile…' : 'Save profile'} {!profileBusy && <Icon name="arrow" size={17} />}</button>
           </form>
         </section>

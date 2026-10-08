@@ -139,9 +139,11 @@ Rules:
 
 ## 09. Leaderboard Module
 
+**Status: Implemented for exams.** Public period leaderboards and authenticated personal rank are available. Students opt in through profile settings; only active opted-in students with eligible finalized published-test attempts appear. Scores sum the best percentage per test within the period. Daily, weekly, and monthly boundaries use `Asia/Dhaka`; ties are broken by test count, achievement time, then stable user ID. Challenge standings are not included until the Challenge module is implemented.
+
 **Purpose:** rank eligible, opted-in students from completed exam/challenge performance.
 
-Proposed endpoints:
+Implemented endpoints:
 
 - `GET /api/leaderboards?period=daily|weekly|monthly|overall&page=1&per_page=50`
 - `GET /api/leaderboards/{period}/me` — caller's own rank and aggregate score, including when outside the current page.
@@ -151,9 +153,9 @@ Rules:
 - Period boundaries use `Asia/Dhaka`: daily is the local calendar day, weekly is Monday–Sunday, monthly is the calendar month, and overall is all eligible history.
 - Count submitted/expired scored attempts only once. Exclude drafts, abandoned/in-progress attempts, test authors' preview attempts, and users who opt out or are inactive.
 - Define the ranking score consistently (recommended: sum of best eligible percentage per test within the period, with the eligible test count displayed). Do not rank by raw marks across tests with different totals.
-- Deterministic tie-break: higher score, then more completed eligible tests, then earlier achievement time, then stable user ID. Document the exact rule in the response.
-- Return only public display name/avatar and aggregate ranking fields. Never return email, phone, address, token, or private profile.
-- Cache may be used for reads but must be invalidated/rebuilt from authoritative result records.
+- Deterministic tie-break: higher score, then more completed eligible tests, then earlier achievement time (the latest timestamp among the best-per-test attempts), then stable user ID. The response reports the period and timezone.
+- Return only public display name/avatar and aggregate ranking fields. Never return exact attempt timestamps, email, phone, address, token, or private profile.
+- Ranking is calculated from authoritative finalized result records; no stale leaderboard cache is used.
 
 Logical data: optional `leaderboard_entries` cache keyed by period type/key and user; result records remain the source of truth.
 

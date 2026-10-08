@@ -22,6 +22,7 @@ Use MySQL 8.0+ or MariaDB 10.11+. The database is the source of truth for tests,
 | gender | string nullable | Profile gender |
 | address | text nullable | Profile address |
 | avatar_path | string nullable | Path on the public storage disk |
+| leaderboard_opt_in | boolean, default false | User consent to show their display name/avatar in public rankings |
 | created_at | timestamp | Creation time |
 | updated_at | timestamp | Update time |
 

@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\AdminSubjectController;
 use App\Http\Controllers\Api\AdminUserController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ExamAttemptController;
+use App\Http\Controllers\Api\LeaderboardController;
 use App\Http\Controllers\Api\ModelTestController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\ResultController;
@@ -27,6 +28,8 @@ Route::get('/', function () {
             'profile' => 'GET|PATCH /api/profile',
             'subjects' => 'GET /api/subjects',
             'tests' => 'GET /api/tests',
+            'leaderboards' => 'GET /api/leaderboards?period=daily|weekly|monthly|overall',
+            'my_leaderboard_position' => 'GET /api/leaderboards/{period}/me',
             'admin_dashboard' => 'GET /api/admin/dashboard',
             'admin_users' => 'GET /api/admin/users',
             'admin_user_details' => 'GET /api/admin/users/{user}',
@@ -66,6 +69,7 @@ Route::middleware(AuthenticateApiToken::class)->group(function (): void {
     Route::get('/profile', [ProfileController::class, 'show']);
     Route::patch('/profile', [ProfileController::class, 'update']);
     Route::post('/profile/photo', [ProfileController::class, 'updatePhoto']);
+    Route::get('/leaderboards/{period}/me', [LeaderboardController::class, 'me']);
 
     Route::post('/attempts', [ExamAttemptController::class, 'start']);
     Route::get('/attempts/{attempt}', [ExamAttemptController::class, 'resume']);
@@ -84,6 +88,7 @@ Route::get('/subjects/{subject}', [SubjectController::class, 'show']);
 
 Route::get('/tests', [ModelTestController::class, 'index']);
 Route::get('/tests/{test}', [ModelTestController::class, 'show']);
+Route::get('/leaderboards', [LeaderboardController::class, 'index']);
 
 Route::middleware(AuthenticateApiToken::class)->prefix('admin')->group(function (): void {
     Route::get('/dashboard', AdminDashboardController::class);

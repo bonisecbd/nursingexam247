@@ -97,10 +97,10 @@ Resets the password and revokes all existing API tokens for the account.
 All profile endpoints require authentication using the token returned by register or login.
 
 - `GET /api/profile` — get the current user's profile.
-- `PATCH /api/profile` — update `name`, `phone`, `date_of_birth`, `gender`, or `address`.
+- `PATCH /api/profile` — update `name`, `phone`, `date_of_birth`, `gender`, `address`, or `leaderboard_opt_in`.
 - `POST /api/profile/photo` — upload a `photo` multipart field (JPEG, PNG, or WebP; maximum 2 MB).
 
-Profile responses include the authenticated user's editable details and `avatar_url`. The signed-in dashboard provides a profile editor and photo upload control. Run `php artisan storage:link` to make uploaded photos available via the public storage disk.
+Profile responses include the authenticated user's editable details, `avatar_url`, and leaderboard privacy preference. Leaderboard participation defaults to opted out; the user can enable or disable it from the profile editor. The signed-in dashboard provides a profile editor and photo upload control. Run `php artisan storage:link` to make uploaded photos available via the public storage disk.
 
 Configure a real mail transport (for example `MAIL_MAILER=smtp` with SMTP host, port, username, and password) to deliver reset codes outside local development.
 
@@ -413,6 +413,20 @@ Implemented: returns paginated answer reviews for the authenticated owner's subm
 Returns the snapshot answer review for the requested question in that attempt. Use the attempt-question `id` (the snapshot answer ID) as `{questionAnswerId}`. Each item includes `id`, `question_id`, `sequence`, `question_text`, `options`, `selected_option`, `correct_option`, `is_correct`, `explanation`, and `points`. `is_correct` is `null` for skipped questions.
 
 The review is read from the attempt's question snapshot, so later edits to the source question do not change historical solutions. Correct answers and explanations are never included in active-exam question responses.
+
+## Leaderboard API
+
+### List period standings
+
+`GET /api/leaderboards?period=daily|weekly|monthly|overall&page=1&per_page=50` (public; period required, page size 1–100)
+
+Returns ranked entries with display name, optional public avatar, score, and eligible test count. Only active student accounts that opted in are included. Scores sum each student's best percentage for each published test in the requested period; period date boundaries use `Asia/Dhaka`. Tie-break order is higher score, more eligible tests, earlier achievement time (the latest timestamp among that student's best-per-test attempts), then lower stable user ID. The response includes period, timezone, and pagination metadata. Exact attempt timestamps and private profile fields are not exposed.
+
+### Get my period position
+
+`GET /api/leaderboards/{period}/me` (authentication required)
+
+Returns the caller's rank, aggregate score, eligible test count, and own achievement timestamp even when beyond the first leaderboard page. Opted-out or otherwise ineligible users receive `rank: null` and `eligible: false`. Private profile data and answer-level results are never returned.
 
 ## Analytics API
 

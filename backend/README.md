@@ -110,6 +110,8 @@ All API routes are under `/api`. Authenticated routes require the API token retu
 | GET | `/api/results/{attempt}/summary` | View a result summary | Yes |
 | GET | `/api/results/{attempt}/solutions` | List solutions | Yes |
 | GET | `/api/results/{attempt}/solutions/{question}` | View a question solution | Yes |
+| GET | `/api/leaderboards?period=daily` | View public leaderboard | No |
+| GET | `/api/leaderboards/{period}/me` | View own leaderboard position | Yes |
 | GET | `/api/admin/dashboard` | View admin dashboard | Yes |
 | GET | `/api/admin/users` | Search and list student accounts (admin only) | Yes |
 | GET | `/api/admin/users/{user}` | View a student profile and recent exam activity (admin only) | Yes |

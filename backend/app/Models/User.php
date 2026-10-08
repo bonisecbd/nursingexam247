@@ -30,6 +30,7 @@ class User extends Authenticatable
         'gender',
         'address',
         'avatar_path',
+        'leaderboard_opt_in',
     ];
 
     /**
@@ -53,6 +54,7 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'is_active' => 'boolean',
+            'leaderboard_opt_in' => 'boolean',
             'date_of_birth' => 'date',
         ];
     }

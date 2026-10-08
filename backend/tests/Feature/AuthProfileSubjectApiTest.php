@@ -22,7 +22,8 @@ class AuthProfileSubjectApiTest extends TestCase
         $this->getJson('/api')
             ->assertOk()
             ->assertJsonPath('message', 'NurseExam247 API is running.')
-            ->assertJsonPath('endpoints.subjects', 'GET /api/subjects');
+            ->assertJsonPath('endpoints.subjects', 'GET /api/subjects')
+            ->assertJsonPath('endpoints.leaderboards', 'GET /api/leaderboards?period=daily|weekly|monthly|overall');
     }
 
     public function test_user_can_register_login_and_revoke_a_bearer_token(): void
@@ -126,15 +127,18 @@ class AuthProfileSubjectApiTest extends TestCase
             'date_of_birth' => '2000-01-01',
             'gender' => 'prefer_not_to_say',
             'address' => 'Dhaka',
+            'leaderboard_opt_in' => true,
         ])->assertOk()
             ->assertJsonPath('user.phone', '+8801700000000')
-            ->assertJsonPath('user.date_of_birth', '2000-01-01');
+            ->assertJsonPath('user.date_of_birth', '2000-01-01')
+            ->assertJsonPath('user.leaderboard_opt_in', true);
 
         $this->withToken('profile-token')->getJson('/api/profile')
             ->assertOk()
             ->assertJsonPath('user.name', 'Rafi Ahmed')
             ->assertJsonPath('user.gender', 'prefer_not_to_say')
-            ->assertJsonPath('user.address', 'Dhaka');
+            ->assertJsonPath('user.address', 'Dhaka')
+            ->assertJsonPath('user.leaderboard_opt_in', true);
 
         Subject::query()->create(['name' => 'Nursing', 'code' => 'NUR']);
         Subject::query()->create(['name' => 'General Knowledge', 'code' => 'GK']);
