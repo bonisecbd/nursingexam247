@@ -116,6 +116,9 @@ All API routes are under `/api`. Authenticated routes require the API token retu
 | GET | `/api/gamification/badges` | View public badge catalogue | No |
 | GET | `/api/gamification/achievements` | View own achievement progress | Yes |
 | GET, PATCH | `/api/admin/gamification/rules` | View/update future rewards (admin only) | Yes |
+| GET | `/api/referrals/me` | Get or create own referral code and counts (student only) | Yes |
+| GET | `/api/referrals/me/invites` | View own referral statuses without invitee identity | Yes |
+| POST | `/api/referrals/redeem` | Redeem code during onboarding | Yes |
 | GET | `/api/admin/dashboard` | View admin dashboard | Yes |
 | GET | `/api/admin/users` | Search and list student accounts (admin only) | Yes |
 | GET | `/api/admin/users/{user}` | View a student profile and recent exam activity (admin only) | Yes |

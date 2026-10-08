@@ -23,7 +23,8 @@ class AuthProfileSubjectApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('message', 'NurseExam247 API is running.')
             ->assertJsonPath('endpoints.subjects', 'GET /api/subjects')
-            ->assertJsonPath('endpoints.leaderboards', 'GET /api/leaderboards?period=daily|weekly|monthly|overall');
+            ->assertJsonPath('endpoints.leaderboards', 'GET /api/leaderboards?period=daily|weekly|monthly|overall')
+            ->assertJsonPath('endpoints.referrals', 'GET /api/referrals/me');
     }
 
     public function test_user_can_register_login_and_revoke_a_bearer_token(): void

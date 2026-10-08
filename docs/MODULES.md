@@ -185,7 +185,9 @@ Logical data: `gamification_settings`, immutable `point_transactions`, separate 
 
 **Purpose:** allow a user to invite a new student and receive an auditable reward when the referral qualifies.
 
-Proposed endpoints:
+**Status: Implemented for code generation and pending attribution.** Active students can share a unique code/link, registration or 24-hour onboarding can attach the inviter, and inviters can view aggregate counts and private-safe statuses. Attribution alone does not issue points, XP, money, or other benefits. Qualification and rewards await the purchase/subscription module and explicit anti-abuse policy.
+
+Implemented endpoints:
 
 - `GET /api/referrals/me` — own referral code and aggregate counts.
 - `GET /api/referrals/me/invites?page=1` — own invite statuses; do not expose the invitee's private details.
@@ -195,11 +197,12 @@ Rules:
 
 - Generate a unique, non-guessable referral code per eligible inviter; code cannot be changed by a client.
 - One account can be referred at most once, cannot refer itself, and cannot change inviter after qualifying activity.
-- Qualifying event must be explicit and configurable (recommended: referred user completes first paid, non-refunded purchase, or a policy-approved activation). Creating an account alone must not issue a valuable reward.
-- Award inviter/invitee benefits once, only after anti-abuse checks, using idempotent reward ledger entries. Reversals for refunded/disqualified purchases are compensating entries.
+- The invitee can be attributed only once, cannot refer themselves, and can redeem after registration only within 24 hours and before starting an exam. Registration-time attribution is recorded atomically with account creation.
+- Qualifying event must be explicit and configurable (recommended: referred user completes first paid, non-refunded purchase, or a separately approved activation). Creating an account alone must not issue a valuable reward. No qualification or reward flow is implemented until the purchase/subscription rules exist.
+- Future inviter/invitee benefits must be awarded once, only after anti-abuse checks, using idempotent reward ledger entries. Reversals for refunded/disqualified purchases are compensating entries.
 - Admin adjustments require reason, actor, audit log, and permission.
 
-Logical data: `referral_codes`, `referrals` (inviter, invitee, status, qualifying event/time), reward ledger references, and audit events.
+Logical data: implemented `referral_codes`, `referrals` (inviter, invitee, status, qualifying event/time); reward ledger references and audit events remain future work.
 
 ## 12. Coupon Module
 

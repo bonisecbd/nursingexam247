@@ -24,11 +24,12 @@ Request:
   "name": "Rafi Ahmed",
   "email": "rafi@example.com",
   "password": "Password@123",
-  "password_confirmation": "Password@123"
+  "password_confirmation": "Password@123",
+  "referral_code": "optional-student-referral-code"
 }
 ```
 
-Successful registration returns `201` with a bearer token and user profile.
+`referral_code` is optional. When valid, referral attribution is created in the same transaction as the new student account; account creation does not issue a reward. Successful registration returns `201` with a bearer token and user profile.
 
 ### Login
 
@@ -456,6 +457,26 @@ Admins can view or set `points_per_test` and `xp_per_test` (integer values from 
 
 The first submitted completion of each published test earns 5 points and 10 XP by default. Repeated submissions, attempts that expire, inactive/non-student accounts, and test-author previews do not earn rewards. Point and XP events use unique idempotency keys tied to user and test.
 
+## Referral API
+
+### My referral code and counts
+
+`GET /api/referrals/me` (active student authentication required)
+
+Creates a cryptographically random, unique referral code on first use and returns the stable code, aggregate invite counts by status, the caller's own attribution (if any), onboarding `can_redeem` state, and `reward_status`. The frontend builds a shareable registration URL from the current site origin and code. Staff and inactive users cannot access referral features.
+
+### My invitations
+
+`GET /api/referrals/me/invites?page=1&per_page=15` (active student authentication required)
+
+Returns only the authenticated inviter's paginated statuses and referral/qualification timestamps. Invitee IDs, names, email addresses, phone numbers, and other private profile fields are not returned.
+
+### Redeem a referral code
+
+`POST /api/referrals/redeem` with `{ "code": "ABC123" }` (active student authentication required)
+
+Links the authenticated new account to an active student inviter once, within 24 hours of registration and before starting an exam. Registration can instead include optional `referral_code`; the account and referral attribution are committed atomically. The student dashboard supports redeeming a code during onboarding. Invalid, self, inactive, or already-used codes fail validation. Attribution stays pending; account creation does not issue points, XP, or money. Purchase qualification and rewards are unavailable until the purchase/subscription module defines an approved qualifying event and anti-abuse policy.
+
 ## Analytics API
 
 ### Overview
@@ -483,7 +504,7 @@ Returns:
 
 The requirements and proposed endpoint/data contracts for Solutions, Leaderboards, Referrals, Coupons, Wallet, Subscriptions, Payments, Challenges, Notifications, Progress/Analytics, Admin, and Settings are documented in [MODULES.md](./MODULES.md). Gamification endpoints are now implemented as described above.
 
-**Implementation status:** Authentication, Profile, Subject, Model Test, Exam, Result, Leaderboard, and Gamification APIs are implemented. Other sections in this API blueprint are planned contracts, not a claim that those routes or features are currently implemented. Confirm the current route registry and code before relying on any endpoint. `MODULES.md` defines the business rules, authorization, validation, and response expectations that an implementation must follow.
+**Implementation status:** Authentication, Profile, Subject, Model Test, Exam, Result, Leaderboard, Gamification, and referral attribution APIs are implemented. Other sections in this API blueprint are planned contracts, not a claim that those routes or features are currently implemented. Confirm the current route registry and code before relying on any endpoint. `MODULES.md` defines the business rules, authorization, validation, and response expectations that an implementation must follow.
 
 ## Error response format
 

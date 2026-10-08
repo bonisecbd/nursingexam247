@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\ApiToken;
 use App\Models\User;
 use App\Notifications\PasswordResetOtp;
+use App\Services\ReferralService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -17,19 +18,35 @@ use Illuminate\Support\Str;
 
 class AuthController extends Controller
 {
-    public function register(Request $request): JsonResponse
+    public function register(Request $request, ReferralService $referrals): JsonResponse
     {
+        if (is_string($request->input('referral_code'))) {
+            $request->merge(['referral_code' => Str::upper(trim($request->input('referral_code')))]);
+        }
+
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', 'string', 'min:8', 'confirmed'],
+            'referral_code' => ['sometimes', 'nullable', 'string', 'max:24', 'regex:/^[A-Za-z0-9]+$/', 'exists:referral_codes,code'],
         ]);
         $validated['email'] = Str::lower($validated['email']);
 
-        $user = User::query()->create($validated + [
-            'role' => 'student',
-            'is_active' => true,
-        ]);
+        $user = DB::transaction(function () use ($validated, $referrals): User {
+            $user = User::query()->create([
+                'name' => $validated['name'],
+                'email' => $validated['email'],
+                'password' => $validated['password'],
+                'role' => 'student',
+                'is_active' => true,
+            ]);
+
+            if (! empty($validated['referral_code'])) {
+                $referrals->attributeAtRegistration($user, $validated['referral_code']);
+            }
+
+            return $user;
+        });
 
         return response()->json($this->tokenResponse($user), 201);
     }

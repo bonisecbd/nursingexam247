@@ -279,6 +279,7 @@ function AuthPanel({ mode, onModeChange, onSuccess, onClose }) {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [email, setEmail] = useState('')
+  const [referralCode, setReferralCode] = useState(() => new URLSearchParams(window.location.search).get('ref') || '')
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -291,7 +292,13 @@ function AuthPanel({ mode, onModeChange, onSuccess, onClose }) {
     const isForgot = mode === 'forgot'
     const isReset = mode === 'reset'
     const payload = isRegister
-      ? { name: form.get('name').trim(), email, password: form.get('password'), password_confirmation: form.get('password_confirmation') }
+      ? {
+          name: form.get('name').trim(),
+          email,
+          password: form.get('password'),
+          password_confirmation: form.get('password_confirmation'),
+          ...(form.get('referral_code').trim() ? { referral_code: form.get('referral_code').trim() } : {}),
+        }
       : isReset
         ? { email, otp: form.get('otp'), password: form.get('password'), password_confirmation: form.get('password_confirmation') }
         : isForgot ? { email } : { email, password: form.get('password') }
@@ -340,6 +347,7 @@ function AuthPanel({ mode, onModeChange, onSuccess, onClose }) {
         {error && <div className="form-error" role="alert">{error}</div>}
         <form onSubmit={handleSubmit} className="auth-form">
           {isRegister && <label>Your name<input name="name" type="text" autoComplete="name" placeholder="e.g. Ayesha Rahman" required maxLength="255" /></label>}
+          {isRegister && <label>Referral code (optional)<input name="referral_code" autoComplete="off" maxLength="24" value={referralCode} onChange={(event) => setReferralCode(event.target.value.toUpperCase())} placeholder="Enter your friend's code" /></label>}
           <label>Email address<input name="email" type="email" autoComplete="email" placeholder="you@example.com" required maxLength="255" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
           {isLogin && <label className="password-label"><span>Password</span><button type="button" className="forgot-link" onClick={() => { setError(''); setNotice(''); onModeChange('forgot') }}>Forgot password?</button><div className="password-wrap"><input name="password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" placeholder="Enter your password" required minLength="8" /><button type="button" className="show-password" aria-label={showPassword ? 'Hide password' : 'Show password'} onClick={() => setShowPassword(!showPassword)}><Icon name="eye" size={18} /></button></div></label>}
           {isForgot && <div className="role-note"><Icon name="shield" size={17} /><span>For account privacy, we’ll show the same confirmation whether or not the email is registered.</span></div>}
@@ -1602,7 +1610,7 @@ function AdminDashboard({ user, token, onLogout, busy, sessionError, navigateTo 
                 <div className="admin-panel-heading"><div><span className="eyebrow">PUBLIC CATALOGUE</span><h2>Published model tests</h2></div><button className="admin-text-button" onClick={() => selectPage('model-tests')}>View all <Icon name="arrow" size={15} /></button></div>
                 {loading ? <div className="dashboard-loading">Loading published tests…</div> : tests.length ? <div className="admin-test-table"><div className="admin-table-row admin-table-head"><span>TEST</span><span>SUBJECT</span><span>QUESTIONS</span><span>STATUS</span></div>{tests.slice(0, 5).map((test) => <div className="admin-table-row" key={test.id}><span><b>{test.title}</b><small>{test.code}</small></span><span>{test.subject?.name || '—'}</span><span>{number(test.question_count)}</span><span><i className="published-dot" /> Published</span></div>)}</div> : <p className="empty-state">No published tests yet. Create a draft model test to begin building the catalogue.</p>}
               </section>
-              <p className="admin-data-note"><Icon name="shield" size={15} /> Revenue, premium subscriptions, referrals and top-student rankings are not tracked until their modules are implemented.</p>
+              <p className="admin-data-note"><Icon name="shield" size={15} /> Revenue and premium subscriptions are not tracked. Referral invitations are attributed, but rewards await a purchase qualification policy.</p>
             </>
           ) : activePage === 'results-all' || activePage === 'results-analytics' ? (
             <AdminResults token={token} page={activePage} />
@@ -1714,6 +1722,101 @@ function GamificationPanel({ token }) {
           </article>)}
         </div>
         {gamification.recent_point_transactions.length > 0 && <div className="gamification-latest-reward"><Icon name="spark" size={15} /> Latest reward: <b>{gamification.recent_point_transactions[0].amount > 0 ? '+' : ''}{gamification.recent_point_transactions[0].amount} points</b> · {gamification.recent_point_transactions[0].description}</div>}
+      </> : null}
+    </section>
+  )
+}
+
+function ReferralPanel({ token }) {
+  const [result, setResult] = useState(null)
+  const [copyError, setCopyError] = useState('')
+  const [copied, setCopied] = useState(false)
+  const [redeemBusy, setRedeemBusy] = useState(false)
+  const [redeemError, setRedeemError] = useState('')
+  const [redeemNotice, setRedeemNotice] = useState('')
+
+  useEffect(() => {
+    let active = true
+    Promise.all([
+      apiRequest('/referrals/me', { token }),
+      apiRequest('/referrals/me/invites?per_page=5', { token }),
+    ]).then(([referralResponse, inviteResponse]) => {
+      if (active) setResult({ referral: referralResponse.referral, invites: inviteResponse })
+    }).catch((error) => {
+      if (active) setResult({ error: error.message })
+    })
+    return () => { active = false }
+  }, [token])
+
+  async function copyInviteLink() {
+    setCopyError('')
+    setCopied(false)
+    const url = new URL('/', window.location.origin)
+    url.searchParams.set('ref', result.referral.code)
+    try {
+      await navigator.clipboard.writeText(url.toString())
+      setCopied(true)
+    } catch {
+      setCopyError('Could not copy automatically. Select and copy the invite link below.')
+    }
+  }
+
+  async function redeemCode(event) {
+    event.preventDefault()
+    setRedeemError('')
+    setRedeemNotice('')
+    setRedeemBusy(true)
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    try {
+      await apiRequest('/referrals/redeem', {
+        method: 'POST',
+        token,
+        body: JSON.stringify({ code: form.get('code').trim() }),
+      })
+      formElement.reset()
+      setRedeemNotice('Referral code linked. It is pending qualification; account creation does not issue a reward.')
+      const [referralResponse, inviteResponse] = await Promise.all([
+        apiRequest('/referrals/me', { token }),
+        apiRequest('/referrals/me/invites?per_page=5', { token }),
+      ])
+      setResult({ referral: referralResponse.referral, invites: inviteResponse })
+    } catch (error) {
+      setRedeemError(error.message)
+    } finally {
+      setRedeemBusy(false)
+    }
+  }
+
+  return (
+    <section className="dashboard-section referral-panel">
+      <div className="dashboard-section-heading"><div><span className="eyebrow">GROW YOUR STUDY COMMUNITY</span><h2>Invite a friend</h2></div><span className="dashboard-count">{result?.referral ? `${result.referral.counts.total} joined` : 'Referrals'}</span></div>
+      {result?.error && <div className="form-error dashboard-error" role="alert">{result.error}</div>}
+      {!result ? <div className="dashboard-loading">Preparing your invite link…</div> : result.referral ? <>
+        <div className="referral-share-card">
+          <div><span>Your referral code</span><b>{result.referral.code}</b></div>
+          <button type="button" className="button button-primary" onClick={copyInviteLink}><Icon name="users" size={15} /> {copied ? 'Copied!' : 'Copy invite link'}</button>
+          <label>Invite link<input readOnly value={`${window.location.origin}/?ref=${encodeURIComponent(result.referral.code)}`} onFocus={(event) => event.target.select()} /></label>
+        </div>
+        {copyError && <div className="form-error dashboard-error" role="alert">{copyError}</div>}
+        <div className="referral-stats">
+          <span><b>{result.referral.counts.total}</b> invited</span>
+          <span><b>{result.referral.counts.pending}</b> pending</span>
+          <span><b>{result.referral.counts.qualified}</b> qualified</span>
+        </div>
+        {result.referral.attribution ? <div className="referral-attribution" role="status">You joined with a referral code. Status: <b>{result.referral.attribution.status}</b></div> : result.referral.can_redeem && <form className="referral-redeem-form" onSubmit={redeemCode}>
+          <label>Have a friend’s code? Enter it within 24 hours of joining and before starting a test.<input name="code" required maxLength="24" pattern="[A-Za-z0-9]+" autoComplete="off" placeholder="Referral code" /></label>
+          <button type="submit" className="button button-outline" disabled={redeemBusy}>{redeemBusy ? 'Linking…' : 'Apply code'}</button>
+        </form>}
+        {redeemError && <div className="form-error dashboard-error" role="alert">{redeemError}</div>}
+        {redeemNotice && <div className="referral-attribution" role="status">{redeemNotice}</div>}
+        <div className="referral-invite-list">
+          <div className="referral-invite-heading"><b>Recent invitations</b><small>Invitee details are kept private</small></div>
+          {result.invites.data.length ? result.invites.data.map((invite, index) => <div className="referral-invite-row" key={`${invite.referred_at}-${index}`}>
+            <span>Invitation {result.invites.meta.total - index}</span><b className={`referral-status ${invite.status}`}>{invite.status}</b>
+          </div>) : <p className="empty-state">No one has joined with your code yet. Share your link to invite a study partner.</p>}
+        </div>
+        <p className="referral-policy-note">Referral rewards are not available yet. Your invites are recorded, but no points or money are granted for account creation.</p>
       </> : null}
     </section>
   )
@@ -1897,6 +2000,7 @@ function Dashboard({ user, token, onLogout, busy, sessionError, isAdminRoute = f
           <span className="role-badge">{user.role}</span>
         </div>
         {!isStaff && <GamificationPanel token={token} />}
+        {!isStaff && <ReferralPanel token={token} />}
         {!isStaff && <LeaderboardPanel token={token} />}
         {loadError && <div className="form-error dashboard-error" role="alert">{loadError}</div>}
         <section className="dashboard-section">

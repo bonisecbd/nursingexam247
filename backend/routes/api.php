@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\GamificationController;
 use App\Http\Controllers\Api\LeaderboardController;
 use App\Http\Controllers\Api\ModelTestController;
 use App\Http\Controllers\Api\ProfileController;
+use App\Http\Controllers\Api\ReferralController;
 use App\Http\Controllers\Api\ResultController;
 use App\Http\Controllers\Api\SolutionController;
 use App\Http\Controllers\Api\SubjectController;
@@ -35,6 +36,9 @@ Route::get('/', function () {
             'badges' => 'GET /api/gamification/badges',
             'achievements' => 'GET /api/gamification/achievements',
             'admin_gamification_rules' => 'GET|PATCH /api/admin/gamification/rules',
+            'referrals' => 'GET /api/referrals/me',
+            'my_referral_invites' => 'GET /api/referrals/me/invites',
+            'redeem_referral' => 'POST /api/referrals/redeem',
             'admin_dashboard' => 'GET /api/admin/dashboard',
             'admin_users' => 'GET /api/admin/users',
             'admin_user_details' => 'GET /api/admin/users/{user}',
@@ -77,6 +81,9 @@ Route::middleware(AuthenticateApiToken::class)->group(function (): void {
     Route::get('/leaderboards/{period}/me', [LeaderboardController::class, 'me']);
     Route::get('/gamification/me', [GamificationController::class, 'me']);
     Route::get('/gamification/achievements', [GamificationController::class, 'achievements']);
+    Route::get('/referrals/me', [ReferralController::class, 'me']);
+    Route::get('/referrals/me/invites', [ReferralController::class, 'invites']);
+    Route::post('/referrals/redeem', [ReferralController::class, 'redeem']);
 
     Route::post('/attempts', [ExamAttemptController::class, 'start']);
     Route::get('/attempts/{attempt}', [ExamAttemptController::class, 'resume']);

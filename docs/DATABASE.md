@@ -93,9 +93,15 @@ Use MySQL 8.0+ or MariaDB 10.11+. The database is the source of truth for tests,
 - `badge_definitions`: versioned badge criteria and public descriptions.
 - `user_badges`: one award per user/badge, with an award time and source attempt.
 
+### Referrals
+
+- `referral_codes`: one unique, generated code per referring student, with an active flag.
+- `referrals`: one pending attribution per invitee, referencing the inviter and code; stores qualification status/event/time for future purchase integration.
+- Referral status/count APIs do not expose invitee identifiers or profile fields to the inviter.
+
 ## Planned product module data
 
-Tables and fields for planned payments, subscriptions, challenges, notifications, administration, and settings are specified in [MODULES.md](./MODULES.md). Those sections remain a logical design, not a claim that the corresponding migrations or features already exist. Keep money/reward ledgers append-only, persist payment provider references uniquely, and derive results from saved answers on the server.
+Tables and fields for planned purchase qualification/rewards, coupons, wallet, subscriptions, challenges, notifications, administration, and settings are specified in [MODULES.md](./MODULES.md). Those sections remain a logical design, not a claim that the corresponding migrations or features already exist. Keep money/reward ledgers append-only, persist payment provider references uniquely, and derive results from saved answers on the server.
 
 ### topics
 
