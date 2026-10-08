@@ -7,6 +7,19 @@ const Views = (() => {
         return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     }
 
+    // Options may arrive as a JSON string or an array; never let a bad payload break rendering.
+    function parseOptions(opts) {
+        if (typeof opts === 'string') {
+            try { opts = JSON.parse(opts); } catch (_) { return []; }
+        }
+        return Array.isArray(opts) ? opts : [];
+    }
+
+    function num(v, fallback = 0) {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : fallback;
+    }
+
     function header(active) {
         const u = API.user();
         const initial = u ? u.name.charAt(0).toUpperCase() : '?';
@@ -97,6 +110,7 @@ const Views = (() => {
                         <div class="form-group">
                             <label for="password_confirmation">Confirm Password</label>
                             <input type="password" id="password_confirmation" class="form-control" placeholder="Repeat password" required>
+                            <div class="form-error" id="password_confirmation-error"></div>
                         </div>
                     </div>
                     <div class="form-error" id="form-error" style="text-align:center;margin-bottom:12px"></div>
@@ -143,8 +157,11 @@ const Views = (() => {
 
     /* ---------- DASHBOARD ---------- */
     function dashboard(data) {
-        const { user, overview, tests } = data;
+        const { overview, tests } = data;
+        const user = data.user || {};
         const stats = overview || {};
+        const pct = (v) => (v != null && v !== '' ? Number(v).toFixed(1) + '%' : '—');
+        const num = (v) => (v != null && v !== '' ? v : '—');
         return `
         ${header('dashboard')}
         <div class="layout">
@@ -162,28 +179,28 @@ const Views = (() => {
                     <div class="stat-card">
                         <div class="stat-icon" style="background:var(--primary-light);color:var(--primary)">📝</div>
                         <div class="stat-info">
-                            <div class="value">${stats.total_tests ?? 0}</div>
+                            <div class="value">${num(stats.total_tests)}</div>
                             <div class="label">Total Tests</div>
                         </div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-icon" style="background:var(--success-light);color:var(--success)">✅</div>
                         <div class="stat-info">
-                            <div class="value">${stats.test_count ?? 0}</div>
+                            <div class="value">${num(stats.test_count)}</div>
                             <div class="label">Completed</div>
                         </div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-icon" style="background:var(--warning-light);color:var(--warning)">📊</div>
                         <div class="stat-info">
-                            <div class="value">${stats.average_score != null ? Number(stats.average_score).toFixed(1) + '%' : '—'}</div>
+                            <div class="value">${stats.average_score != null ? pct(stats.average_score) : '—'}</div>
                             <div class="label">Avg Score</div>
                         </div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-icon" style="background:var(--info-light);color:var(--info)">🎯</div>
                         <div class="stat-info">
-                            <div class="value">${stats.accuracy_rate != null ? Number(stats.accuracy_rate).toFixed(1) + '%' : '—'}</div>
+                            <div class="value">${stats.accuracy_rate != null ? pct(stats.accuracy_rate) : '—'}</div>
                             <div class="label">Accuracy</div>
                         </div>
                     </div>
@@ -205,15 +222,22 @@ const Views = (() => {
         </div>`;
     }
 
+    function subjectName(t) {
+        const s = t.subject;
+        if (!s) return '';
+        return typeof s === 'object' ? (s.name || '') : String(s);
+    }
+
     function testCard(t) {
         const locked = t.is_locked;
+        const subject = subjectName(t);
         return `
         <div class="flex-between mb-2" style="padding:16px;border:1px solid var(--border);border-radius:var(--radius)">
             <div>
                 <div style="font-weight:700;margin-bottom:4px">${esc(t.title)}</div>
                 <div class="text-sm text-muted">
                     📋 ${t.question_count} Qs &nbsp;|&nbsp; ⏱ ${t.duration_minutes} min &nbsp;|&nbsp; 🎯 ${t.total_marks} marks
-                    ${t.subject ? ' &nbsp;|&nbsp; 📚 ' + esc(t.subject) : ''}
+                    ${subject ? ' &nbsp;|&nbsp; 📚 ' + esc(subject) : ''}
                 </div>
             </div>
             <div class="flex gap-1">
@@ -262,7 +286,7 @@ const Views = (() => {
                                         <span>📋 ${t.question_count} Questions</span>
                                         <span>⏱ ${t.duration_minutes} min</span>
                                         <span>🎯 ${t.total_marks} marks</span>
-                                        <span>✅ Pass: ${t.passing_score}%</span>
+                                        <span>✅ Pass: ${num(t.passing_score)}/${num(t.total_marks)}</span>
                                         ${t.is_negative_marking_enabled ? '<span style="color:var(--danger)">−0.25 negative</span>' : ''}
                                     </div>
                                 </div>
@@ -321,14 +345,14 @@ const Views = (() => {
     }
 
     function questionView(q, answer, flags, index, total) {
-        const opts = typeof q.options === 'string' ? JSON.parse(q.options) : q.options;
+        const opts = parseOptions(q.options);
         const keys = ['A', 'B', 'C', 'D', 'E', 'F'];
         return `
         <div class="question-card">
             <div class="question-meta">
                 <div class="flex gap-1">
                     <span class="badge badge-primary">Question ${index + 1}/${total}</span>
-                    ${q.points ? `<span class="badge badge-info">${q.points} mark${q.points != 1 ? 's' : ''}</span>` : ''}
+                    ${num(q.points, 0) > 0 ? `<span class="badge badge-info">${q.points} mark${num(q.points, 1) === 1 ? '' : 's'}</span>` : ''}
                 </div>
                 <button class="btn btn-sm ${flags ? 'btn-warning' : 'btn-outline'}" onclick="App.toggleFlag(${q.id})">
                     ${flags ? '🚩 Flagged' : '🏳 Flag'}
@@ -360,14 +384,23 @@ const Views = (() => {
     }
 
     /* ---------- RESULT ---------- */
-    function result(data) {
-        const r = data;
-        const test = data.test || {};
-        const pct = Number(r.percentage || 0);
-        const passed = r.passed ?? (pct >= (test.passing_score || 50));
+    function result(payload) {
+        // Live API wraps the summary as { result: {...} }; older shapes used { attempt } or a flat body.
+        const r = payload.result || payload.attempt || payload;
+        const test = r.test || payload.test || {};
+        const attemptId = r.attempt_id || payload.attempt_id || r.id;
+        const pctRaw = num(r.percentage, 0);
+        const pct = Math.min(100, Math.max(0, pctRaw));
+        const passing = num(test.passing_score, 50);
+        const totalMarks = num(r.total_marks, 0);
+        const passed = r.passed ?? r.is_passed ?? (pctRaw >= (totalMarks > 0 ? (passing / totalMarks) * 100 : passing));
         const circumference = 2 * Math.PI * 70;
         const offset = circumference - (pct / 100) * circumference;
         const ringColor = passed ? 'var(--success)' : 'var(--danger)';
+        const correct = num(r.correct_count, 0);
+        const wrong = num(r.wrong_count ?? r.incorrect_count, 0);
+        const skipped = num(r.skipped_count ?? r.unanswered_count, 0);
+        const duration = r.duration_seconds != null ? Math.round(num(r.duration_seconds, 0)) : null;
 
         return `
         ${header('')}
@@ -378,9 +411,13 @@ const Views = (() => {
                     <div class="result-header">
                         <h1 style="font-size:1.8rem;font-weight:800;margin-bottom:6px">Test Result</h1>
                         <p class="text-muted mb-2">${esc(r.test_title || test.title || '')}</p>
-                        <span class="pass-badge ${passed ? 'pass' : 'fail'}">
-                            ${passed ? '✅ PASS' : '❌ FAIL'}
-                        </span>
+                        <div class="flex gap-1" style="justify-content:center;flex-wrap:wrap">
+                            <span class="pass-badge ${passed ? 'pass' : 'fail'}">
+                                ${passed ? '✅ PASS' : '❌ FAIL'}
+                            </span>
+                            ${r.status ? `<span class="badge badge-${r.status === 'submitted' ? 'success' : 'warning'}">${esc(r.status)}</span>` : ''}
+                            ${duration != null ? `<span class="badge badge-muted">⏱ ${Math.floor(duration / 60)}m ${duration % 60}s</span>` : ''}
+                        </div>
                     </div>
 
                     <div class="score-ring" style="margin:30px auto">
@@ -398,34 +435,34 @@ const Views = (() => {
 
                     <div class="result-stats">
                         <div class="result-stat score">
-                            <div class="value">${Number(r.score || 0)}</div>
-                            <div class="label">Score (${Number(r.total_marks || 0)} marks)</div>
+                            <div class="value">${num(r.score, 0)}</div>
+                            <div class="label">Score (${totalMarks} marks)</div>
                         </div>
                         <div class="result-stat correct">
-                            <div class="value">${r.correct_count || 0}</div>
+                            <div class="value">${correct}</div>
                             <div class="label">✅ Correct</div>
                         </div>
                         <div class="result-stat wrong">
-                            <div class="value">${r.incorrect_count || 0}</div>
+                            <div class="value">${wrong}</div>
                             <div class="label">❌ Wrong</div>
                         </div>
                         <div class="result-stat skipped">
-                            <div class="value">${r.unanswered_count || 0}</div>
+                            <div class="value">${skipped}</div>
                             <div class="label">⏭ Skipped</div>
                         </div>
                     </div>
 
                     <div class="flex-center gap-2 mt-3">
-                        <a href="/solution/${r.attempt_id || r.id}" class="btn btn-primary">📖 View Solutions</a>
+                        ${attemptId ? `<a href="/solution/${attemptId}" class="btn btn-primary">📖 View Solutions</a>` : ''}
                         <a href="/tests" class="btn btn-outline">📝 Take Another Test</a>
                         <a href="/history" class="btn btn-ghost">📜 History</a>
                     </div>
                 </div>
 
-                ${data.subject_scores && data.subject_scores.length ? `
+                ${payload.subject_scores && payload.subject_scores.length ? `
                 <div class="card">
                     <div class="card-header"><span class="card-title">📚 Subject-wise Performance</span></div>
-                    ${data.subject_scores.map(s => `
+                    ${payload.subject_scores.map(s => `
                         <div class="mb-2">
                             <div class="flex-between text-sm mb-1">
                                 <span>${esc(s.subject_name)}</span>
@@ -443,8 +480,12 @@ const Views = (() => {
 
     /* ---------- SOLUTION ---------- */
     function solution(data) {
-        const items = data.data || data.solutions || [];
+        const items = Array.isArray(data.data) ? data.data : (data.solutions || []);
         const meta = data;
+        const attemptId = meta.attempt_id || meta.id;
+        const page = num(meta.current_page, 1);
+        const lastPage = num(meta.last_page, 1);
+        const hasNext = page < lastPage || !!meta.next_page_url;
         return `
         ${header('')}
         <div class="layout">
@@ -453,34 +494,38 @@ const Views = (() => {
                 <div class="flex-between mb-3">
                     <div>
                         <h1 style="font-size:1.6rem;font-weight:800">📖 Solutions & Review</h1>
-                        <p class="text-muted">Question-by-question answer review</p>
+                        <p class="text-muted">Question-by-question answer review${lastPage > 1 ? ` — page ${page} of ${lastPage}` : ''}</p>
                     </div>
-                    <a href="/result/${meta.attempt_id || meta.id}" class="btn btn-outline">← Back to Result</a>
+                    ${attemptId ? `<a href="/result/${attemptId}" class="btn btn-outline">← Back to Result</a>` : ''}
                 </div>
 
                 <div id="solutions-list">
-                    ${items.map(s => solutionItem(s)).join('')}
+                    ${items.length ? items.map(s => solutionItem(s)).join('') : `
+                        <div class="card empty-state">
+                            <div class="icon">📖</div>
+                            <h3>No solutions found</h3>
+                            <p>Answer reviews will appear here for submitted attempts</p>
+                        </div>`}
                 </div>
 
-                ${data.links && data.links.next ? `
-                    <div class="flex-center mt-3">
-                        <button class="btn btn-primary" onclick="App.loadMoreSolutions()">Load More</button>
-                    </div>` : ''}
+                <div id="solutions-more" class="flex-center mt-3" ${hasNext ? '' : 'hidden'}>
+                    <button class="btn btn-primary" id="load-more-btn" onclick="App.loadMoreSolutions()">Load More</button>
+                </div>
             </main>
         </div>`;
     }
 
     function solutionItem(s) {
-        const opts = typeof s.options === 'string' ? JSON.parse(s.options) : s.options;
+        const opts = parseOptions(s.options);
         const keys = ['A', 'B', 'C', 'D', 'E', 'F'];
-        const status = s.is_correct === null ? 'skipped' : (s.is_correct ? 'correct' : 'wrong');
+        const status = s.is_correct === null || s.is_correct === undefined ? 'skipped' : (s.is_correct ? 'correct' : 'wrong');
         return `
         <div class="solution-item ${status}">
             <div class="flex-between mb-1">
                 <span class="badge badge-${status === 'correct' ? 'success' : status === 'wrong' ? 'danger' : 'muted'}">
                     Q${s.sequence} — ${status === 'correct' ? '✅ Correct' : status === 'wrong' ? '❌ Wrong' : '⏭ Skipped'}
                 </span>
-                <span class="text-sm text-muted">${s.points} mark${s.points != 1 ? 's' : ''}</span>
+                <span class="text-sm text-muted">${s.points} mark${num(s.points, 1) === 1 ? '' : 's'}</span>
             </div>
             <div class="solution-question">${esc(s.question_text)}</div>
             <div class="solution-options">
@@ -531,22 +576,30 @@ const Views = (() => {
                                 </tr>
                             </thead>
                             <tbody>
-                                ${attempts.map(a => `
+                                ${attempts.map(a => {
+                                    const aid = a.attempt_id ?? a.id;
+                                    const status = a.status || '';
+                                    const badge = status === 'submitted' ? 'success'
+                                        : status === 'expired' ? 'warning'
+                                        : status === 'in_progress' ? 'info' : 'muted';
+                                    const when = a.finished_at || a.started_at || a.created_at;
+                                    const testId = (a.test && a.test.id) || a.test_id;
+                                    return `
                                 <tr>
-                                    <td><strong>${esc(a.test_title || a.test?.title || 'Test #' + a.test_id)}</strong></td>
-                                    <td><span class="badge badge-${a.status === 'submitted' ? 'success' : a.status === 'expired' ? 'warning' : 'info'}">${a.status}</span></td>
-                                    <td>${a.score != null ? a.score + '/' + (a.total_marks || 100) : '—'}</td>
-                                    <td>${a.percentage != null ? a.percentage + '%' : '—'}</td>
-                                    <td>${a.created_at ? new Date(a.created_at).toLocaleDateString() : '—'}</td>
-                                    <td>
-                                        ${a.status === 'submitted' || a.status === 'expired' ? `
-                                            <a href="/result/${a.id}" class="btn btn-ghost btn-sm">Result</a>
-                                            <a href="/solution/${a.id}" class="btn btn-ghost btn-sm">Solutions</a>
-                                        ` : a.status === 'in_progress' ? `
-                                            <button class="btn btn-primary btn-sm" onclick="App.resumeTest(${a.id})">Resume</button>
-                                        ` : ''}
+                                    <td><strong>${esc(a.test_title || (a.test && a.test.title) || (testId ? 'Test #' + testId : 'Test'))}</strong></td>
+                                    <td><span class="badge badge-${badge}">${esc(status)}</span></td>
+                                    <td>${a.score != null ? esc(a.score) + '/' + esc(a.total_marks ?? '—') : '—'}</td>
+                                    <td>${a.percentage != null ? esc(a.percentage) + '%' : '—'}</td>
+                                    <td>${when ? new Date(when).toLocaleString() : '—'}</td>
+                                    <td>${aid == null ? '—' : `
+                                        ${status === 'submitted' || status === 'expired' ? `
+                                            <a href="/result/${aid}" class="btn btn-ghost btn-sm">Result</a>
+                                            <a href="/solution/${aid}" class="btn btn-ghost btn-sm">Solutions</a>
+                                        ` : status === 'in_progress' ? `
+                                            <button class="btn btn-primary btn-sm" onclick="App.resumeTest(${aid})">Resume</button>
+                                        ` : ''}`}
                                     </td>
-                                </tr>`).join('')}
+                                </tr>`; }).join('')}
                             </tbody>
                         </table>
                     </div>
@@ -564,7 +617,7 @@ const Views = (() => {
     /* ---------- PROFILE ---------- */
     function profile(data) {
         const u = data.user || API.user() || {};
-        const avatarUrl = data.avatar_url || '';
+        const avatarUrl = data.avatar_url || u.avatar_url || '';
         const initial = (u.name || '?').charAt(0).toUpperCase();
         return `
         ${header('profile')}
@@ -576,8 +629,8 @@ const Views = (() => {
                 <div class="profile-header">
                     <div class="profile-avatar">
                         ${avatarUrl
-                            ? `<img src="${avatarUrl}" class="avatar avatar-lg" style="object-fit:cover" alt="Avatar">`
-                            : `<div class="avatar avatar-lg">${initial}</div>`}
+                            ? `<img src="${esc(avatarUrl)}" class="avatar avatar-lg" style="object-fit:cover" alt="Avatar">`
+                            : `<div class="avatar avatar-lg">${esc(initial)}</div>`}
                         <label class="edit-btn" for="photo-input" title="Change photo">📷</label>
                         <input type="file" id="photo-input" accept="image/jpeg,image/png,image/webp" onchange="App.uploadPhoto(this)">
                     </div>
@@ -595,16 +648,19 @@ const Views = (() => {
                             <div class="form-group">
                                 <label>Name</label>
                                 <input type="text" id="p-name" class="form-control" value="${esc(u.name || '')}">
+                                <div class="form-error" id="p-name-error"></div>
                             </div>
                             <div class="form-group">
                                 <label>Phone</label>
                                 <input type="text" id="p-phone" class="form-control" value="${esc(u.phone || '')}" placeholder="+8801XXXXXXXXX">
+                                <div class="form-error" id="p-phone-error"></div>
                             </div>
                         </div>
                         <div class="form-row">
                             <div class="form-group">
                                 <label>Date of Birth</label>
                                 <input type="date" id="p-dob" class="form-control" value="${esc(u.date_of_birth || '')}">
+                                <div class="form-error" id="p-dob-error"></div>
                             </div>
                             <div class="form-group">
                                 <label>Gender</label>
@@ -614,11 +670,13 @@ const Views = (() => {
                                     <option value="female" ${u.gender === 'female' ? 'selected' : ''}>Female</option>
                                     <option value="other" ${u.gender === 'other' ? 'selected' : ''}>Other</option>
                                 </select>
+                                <div class="form-error" id="p-gender-error"></div>
                             </div>
                         </div>
                         <div class="form-group">
                             <label>Address</label>
                             <input type="text" id="p-address" class="form-control" value="${esc(u.address || '')}" placeholder="Your address">
+                            <div class="form-error" id="p-address-error"></div>
                         </div>
                         <div class="form-error" id="profile-error"></div>
                         <button type="submit" class="btn btn-primary" id="profile-btn">Save Changes</button>

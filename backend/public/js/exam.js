@@ -12,38 +12,58 @@ const ExamEngine = (() => {
         expiresAt: null,
         remainingSeconds: 0,
         timerId: null,
-        saveTimerId: null,
+        saveTimers: {},       // { [attemptQuestionId]: timeoutId }
+        pendingSaves: {},     // { [attemptQuestionId]: Promise }
         submitting: false,
     };
 
     function init(data) {
-        state.attemptId = data.attempt.id;
-        state.testId = data.attempt.test_id;
+        const attempt = data.attempt || {};
+        state.attemptId = attempt.id;
+        state.testId = attempt.test_id ?? (attempt.test ? attempt.test.id : null);
         state.questions = data.questions || [];
         state.answers = data.answers || {};
-        state.expiresAt = data.attempt.expires_at;
-        state.remainingSeconds = data.attempt.time_remaining_seconds || 0;
+        state.expiresAt = attempt.expires_at;
+        state.remainingSeconds = remainingFrom(attempt);
         state.currentIndex = 0;
         state.flags = {};
+        state.saveTimers = {};
+        state.pendingSaves = {};
         state.submitting = false;
 
-        // restore current index from saved answers if possible
-        const firstUnanswered = state.questions.findIndex(q => !(q.id in state.answers));
+        // restore current index from first unanswered question
+        const firstUnanswered = state.questions.findIndex(q =>
+            !(q.id in state.answers) || state.answers[q.id] === null || state.answers[q.id] === undefined
+        );
         if (firstUnanswered >= 0) state.currentIndex = firstUnanswered;
 
         startTimer();
     }
 
+    // Prefer the server-provided remaining seconds; fall back to expires_at.
+    function remainingFrom(attempt) {
+        const secs = Number(attempt.time_remaining_seconds);
+        if (Number.isFinite(secs) && attempt.time_remaining_seconds !== null && attempt.time_remaining_seconds !== undefined) {
+            return Math.max(0, Math.floor(secs));
+        }
+        const exp = Date.parse(attempt.expires_at || '');
+        if (Number.isFinite(exp)) return Math.max(0, Math.floor((exp - Date.now()) / 1000));
+        return 0;
+    }
+
     function startTimer() {
         stopTimer();
+        if (state.remainingSeconds <= 0) {
+            updateTimerDisplay();
+            autoSubmit();
+            return;
+        }
         state.timerId = setInterval(() => {
             state.remainingSeconds--;
             updateTimerDisplay();
             if (state.remainingSeconds <= 0) {
                 stopTimer();
                 autoSubmit();
-            } else if (state.remainingSeconds === 60 || state.remainingSeconds === 30) {
-                // warning handled in display
             }
         }, 1000);
         updateTimerDisplay();
@@ -56,7 +76,7 @@ const ExamEngine = (() => {
     function updateTimerDisplay() {
         const el = document.getElementById('exam-timer');
         if (!el) return;
-        const s = state.remainingSeconds;
+        const s = Math.max(0, state.remainingSeconds);
         const m = Math.floor(s / 60);
         const sec = s % 60;
         el.textContent = String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
@@ -69,29 +89,71 @@ const ExamEngine = (() => {
 
     function getAnswer(qId) { return state.answers[qId] !== undefined ? state.answers[qId] : null; }
 
-    function answeredCount() { return Object.keys(state.answers).length; }
+    function answeredCount() {
+        return Object.values(state.answers).filter(v => v !== null && v !== undefined).length;
+    }
+
+    // Server deadline reached (410): the attempt is finalized as expired.
+    function handleExpired() {
+        stopTimer();
+        Object.values(state.saveTimers).forEach(id => clearTimeout(id));
+        state.saveTimers = {};
+        state.submitting = true;
+        notify('Time is up! Your attempt has been submitted.');
+        navigate('/result/' + state.attemptId);
+    }
+
+    function notify(msg) {
+        if (window.App && typeof App.toast === 'function') App.toast(msg, 'warning');
+        else alert(msg);
+    }
+
+    function onSaved(e) {
+        if (e.status === 410) { handleExpired(); return; }
+        if (window.App && typeof App.toast === 'function') App.toast(e.message || 'Could not save answer', 'error');
+    }
+
+    async function persistAnswer(qId, optionIndex) {
+        try {
+            await API.saveAnswer(state.attemptId, qId, optionIndex);
+            showSaveIndicator();
+        } catch (e) {
+            onSaved(e);
+        }
+    }
+
+    // Debounced autosave — timers are kept per question so switching
+    // questions quickly never drops a pending save.
+    function scheduleSave(qId, optionIndex) {
+        if (state.saveTimers[qId]) clearTimeout(state.saveTimers[qId]);
+        state.saveTimers[qId] = setTimeout(() => {
+            delete state.saveTimers[qId];
+            state.pendingSaves[qId] = persistAnswer(qId, optionIndex)
+                .finally(() => { delete state.pendingSaves[qId]; });
+        }, 300);
+    }
+
+    // Flush every pending save (used before submit so no answer is lost).
+    function flushSaves() {
+        const jobs = [];
+        Object.keys(state.saveTimers).forEach(qId => {
+            clearTimeout(state.saveTimers[qId]);
+            delete state.saveTimers[qId];
+            jobs.push(persistAnswer(qId, state.answers[qId]).finally(() => { delete state.pendingSaves[qId]; }));
+        });
+        Object.keys(state.pendingSaves).forEach(qId => jobs.push(state.pendingSaves[qId]));
+        return Promise.all(jobs);
+    }
 
     async function selectOption(qId, optionIndex) {
         state.answers[qId] = optionIndex;
-        // Auto-save with debounce
-        if (state.saveTimerId) clearTimeout(state.saveTimerId);
-        state.saveTimerId = setTimeout(async () => {
-            try {
-                await API.saveAnswer(state.attemptId, qId, optionIndex);
-                showSaveIndicator();
-            } catch (e) {
-                if (e.status === 410) {
-                    stopTimer();
-                    alert('Time is up! Your attempt has been submitted.');
-                    navigate('/result/' + state.attemptId);
-                }
-            }
-        }, 300);
+        scheduleSave(qId, optionIndex);
     }
 
     function clearAnswer(qId) {
         state.answers[qId] = null;
-        API.saveAnswer(state.attemptId, qId, null).catch(() => {});
+        if (state.saveTimers[qId]) { clearTimeout(state.saveTimers[qId]); delete state.saveTimers[qId]; }
+        state.pendingSaves[qId] = persistAnswer(qId, null).finally(() => { delete state.pendingSaves[qId]; });
     }
 
     function toggleFlag(qId) {
@@ -112,10 +174,16 @@ const ExamEngine = (() => {
         state.submitting = true;
         stopTimer();
         try {
+            await flushSaves();
             const result = await API.submitAttempt(state.attemptId);
             navigate('/result/' + state.attemptId);
             return result;
         } catch (e) {
+            // 410: server already finalized the attempt as expired — result is available.
+            if (e.status === 410 || e.status === 409) {
+                navigate('/result/' + state.attemptId);
+                return;
+            }
             state.submitting = false;
             startTimer();
             throw e;
@@ -125,9 +193,11 @@ const ExamEngine = (() => {
     async function autoSubmit() {
         if (state.submitting) return;
         state.submitting = true;
+        stopTimer();
         try {
+            await flushSaves();
             await API.submitAttempt(state.attemptId);
-        } catch (_) { /* ignore */ }
+        } catch (_) { /* server already finalized it (410) or retryable — result page will settle it */ }
         navigate('/result/' + state.attemptId);
     }
 
@@ -136,16 +206,19 @@ const ExamEngine = (() => {
         if (!el) return;
         el.textContent = '✓ Saved';
         el.style.color = 'var(--success)';
-        setTimeout(() => { el.textContent = ''; }, 1500);
+        setTimeout(() => { if (el.textContent === '✓ Saved') el.textContent = ''; }, 1500);
     }
 
     function destroy() {
         stopTimer();
-        if (state.saveTimerId) clearTimeout(state.saveTimerId);
+        // Keep any pending autosave: flush it in the background before teardown.
+        flushSaves().catch(() => {});
+        Object.values(state.saveTimers).forEach(id => clearTimeout(id));
+        state.saveTimers = {};
         state.submitting = false;
     }
 
     function getState() { return { ...state }; }
 
-    return { init, current, getAnswer, answeredCount, selectOption, clearAnswer, toggleFlag, goTo, next, prev, submit, destroy, getState };
+    return { init, current, getAnswer, answeredCount, selectOption, clearAnswer, toggleFlag, goTo, next, prev, submit, destroy, getState, flushSaves };
 })();

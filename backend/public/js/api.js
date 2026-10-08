@@ -25,6 +25,8 @@ const API = (() => {
 
     function isLoggedIn() { return !!token(); }
 
+    const PUBLIC_PATHS = ['/', '/login', '/register', '/forgot-password'];
+
     async function request(path, { method = 'GET', body = null, formData = null } = {}) {
         const headers = { 'Accept': 'application/json' };
         if (token()) headers['Authorization'] = 'Bearer ' + token();
@@ -41,7 +43,14 @@ const API = (() => {
         const data = res.status === 204 ? {} : await res.json().catch(() => ({}));
 
         if (!res.ok) {
-            if (res.status === 401) { clearAuth(); }
+            if (res.status === 401) {
+                const hadToken = !!token();
+                clearAuth();
+                // Session expired / revoked token: leave protected pages and return to login.
+                if (hadToken && PUBLIC_PATHS.indexOf(location.pathname) === -1) {
+                    location.href = '/login';
+                }
+            }
             const err = new Error(data.message || 'Request failed (' + res.status + ')');
             err.status = res.status;
             err.errors = data.errors || {};

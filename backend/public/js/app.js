@@ -54,14 +54,22 @@ const App = (() => {
         }
     }
 
+    // Every render bumps this token so slow async pages cannot paint over
+    // a page the user has since navigated away from.
+    let renderToken = 0;
+
     function render(html) {
+        renderToken++;
         root().innerHTML = html;
         window.scrollTo(0, 0);
         bindAuthForms();
+        return renderToken;
     }
 
+    function stale(token) { return token !== renderToken; }
+
     function loading(msg = 'Loading...') {
-        render(`<div class="loading-overlay"><div class="spinner"></div><p>${msg}</p></div>`);
+        return render(`<div class="loading-overlay"><div class="spinner"></div><p>${esc(msg)}</p></div>`);
     }
 
     function toast(msg, type = 'success') {
@@ -76,44 +84,50 @@ const App = (() => {
        PAGE: Dashboard
        ========================================================== */
     async function pageDashboard() {
-        loading('Loading dashboard...');
+        const seq = loading('Loading dashboard...');
         const [meRes, testsRes] = await Promise.allSettled([
             API.me(), API.tests('?status=published&per_page=5')
         ]);
-        const user = meRes.status === 'fulfilled' ? meRes.value.user || meRes.value : API.user();
-        const tests = testsRes.status === 'fulfilled' ? (testsRes.value.data || testsRes.value.tests || []) : [];
-        render(Views.dashboard({ user, tests }));
-        // load overview
+        if (stale(seq)) return;
+        const user = (meRes.status === 'fulfilled' && (meRes.value.user || meRes.value)) || API.user() || {};
+        const tests = testsRes.status === 'fulfilled'
+            ? (testsRes.value.data || testsRes.value.tests || [])
+            : [];
+        const token = render(Views.dashboard({ user, tests }));
+        // load overview (optional: the analytics module may not be deployed)
         try {
             const ov = await API.request('/analytics/overview');
+            if (stale(token)) return;
             const statsEl = document.querySelectorAll('.stat-info .value');
             if (statsEl.length >= 4) {
-                statsEl[0].textContent = ov.total_tests ?? 0;
-                statsEl[1].textContent = ov.test_count ?? 0;
-                statsEl[2].textContent = ov.average_score != null ? Number(ov.average_score).toFixed(1) + '%' : '—';
-                statsEl[3].textContent = ov.accuracy_rate != null ? Number(ov.accuracy_rate).toFixed(1) + '%' : '—';
+                if (ov.total_tests != null) statsEl[0].textContent = ov.total_tests;
+                if (ov.test_count != null) statsEl[1].textContent = ov.test_count;
+                if (ov.average_score != null) statsEl[2].textContent = Number(ov.average_score).toFixed(1) + '%';
+                if (ov.accuracy_rate != null) statsEl[3].textContent = Number(ov.accuracy_rate).toFixed(1) + '%';
             }
-        } catch (_) { /* analytics optional */ }
+        } catch (_) { /* analytics optional — stats stay as em dashes */ }
     }
 
     /* ==========================================================
        PAGE: Tests List
        ========================================================== */
     async function pageTests() {
-        loading('Loading tests...');
+        const seq = loading('Loading tests...');
         const [testsRes, subjRes] = await Promise.allSettled([
             API.tests('?status=published&per_page=50'), API.subjects('?per_page=50')
         ]);
+        if (stale(seq)) return;
         const tests = testsRes.status === 'fulfilled' ? (testsRes.value.data || testsRes.value.tests || []) : [];
         const subjects = subjRes.status === 'fulfilled' ? (subjRes.value.data || subjRes.value.subjects || []) : [];
 
-        // Check lock status for each test
+        // Check lock status for each test (endpoint may be unavailable — degrade to unlocked)
         for (const t of tests) {
             try {
                 const unlock = await API.request('/tests/' + t.id + '/unlock-status');
                 t.is_locked = unlock.locked === true || unlock.is_locked === true;
                 t.locked_reason = unlock.reason || unlock.message || '';
             } catch (_) { t.is_locked = false; }
+            if (stale(seq)) return;
         }
 
         render(Views.testsList({ tests, subjects }));
@@ -124,33 +138,66 @@ const App = (() => {
        ========================================================== */
     let currentExamTest = null;
 
+    // Attempt payloads nest the questions inside `attempt`, and each question
+    // carries its saved answer as `selected_option`.
+    function attemptView(data) {
+        const attempt = data.attempt || data;
+        const questions = attempt.questions || data.questions || [];
+        const answers = {};
+        if (Array.isArray(data.answers)) {
+            data.answers.forEach(a => {
+                const k = a.attempt_question_id ?? a.question_id ?? a.id;
+                if (k != null) answers[k] = a.selected_option ?? null;
+            });
+        } else if (data.answers && typeof data.answers === 'object') {
+            Object.assign(answers, data.answers);
+        }
+        questions.forEach(q => {
+            if (q.selected_option !== undefined) answers[q.id] = q.selected_option;
+        });
+        // A null selection means unanswered — keep it out of the answer map.
+        Object.keys(answers).forEach(k => {
+            if (answers[k] === null || answers[k] === undefined) delete answers[k];
+        });
+        return { attempt, questions, answers };
+    }
+
+    function mountExam(data) {
+        const { attempt, questions, answers } = attemptView(data);
+        const testInfo = attempt.test || {};
+        currentExamTest = attempt;
+
+        if (!questions.length) {
+            toast('No questions available for this test', 'error');
+            return null;
+        }
+
+        render(Views.examBody({
+            title: attempt.test_title || testInfo.title || 'Test',
+            question_count: questions.length
+        }, attempt));
+
+        ExamEngine.init({
+            attempt: { ...attempt, test_id: attempt.test_id ?? testInfo.id },
+            questions,
+            answers,
+        });
+        renderQuestion();
+        return attempt;
+    }
+
     async function pageExam(testId) {
-        loading('Starting test...');
+        const seq = loading('Starting test...');
         try {
-            const data = await API.startAttempt(parseInt(testId));
-            const attempt = data.attempt || data;
-            const questions = data.questions || [];
-            currentExamTest = attempt;
-
-            if (!questions.length) {
-                toast('No questions available for this test', 'error');
-                return navigate('/tests');
-            }
-
-            // Render shell
-            render(Views.examBody({
-                title: attempt.test_title || 'Test',
-                question_count: questions.length
-            }, attempt));
-
-            ExamEngine.init({ attempt: { ...attempt, test_id: testId }, questions, answers: data.answers || {} });
-            renderQuestion();
+            const data = await API.startAttempt(parseInt(testId, 10));
+            if (stale(seq)) return;
+            if (!mountExam(data)) return navigate('/tests');
         } catch (e) {
-            if (e.status === 403) { toast(e.message, 'error'); return navigate('/tests'); }
+            if (stale(seq)) return;
             if (e.status === 409) {
-                // Attempt already in progress — resume
+                // Attempt already in progress — resume it
                 toast('Resuming previous attempt', 'warning');
-                return resumeExam(parseInt(testId));
+                return resumeExam(parseInt(testId, 10));
             }
             toast(e.message, 'error');
             navigate('/tests');
@@ -159,21 +206,38 @@ const App = (() => {
 
     async function resumeExam(testId) {
         try {
-            const history = await API.attemptHistory('?test_id=' + testId + '&per_page=1');
+            const history = await API.attemptHistory('?test_id=' + testId + '&per_page=20');
             const attempts = history.data || history.attempts || [];
             const inProgress = attempts.find(a => a.status === 'in_progress');
             if (!inProgress) return navigate('/tests');
-
-            const data = await API.resumeAttempt(inProgress.id);
-            const attempt = data.attempt || data;
-            const questions = data.questions || [];
-
-            render(Views.examBody({ title: attempt.test_title || 'Test', question_count: questions.length }, attempt));
-            ExamEngine.init({ attempt, questions, answers: data.answers || {} });
-            renderQuestion();
+            await resumeExamAttempt(inProgress.attempt_id ?? inProgress.id);
         } catch (e) {
             toast('Could not resume: ' + e.message, 'error');
             navigate('/tests');
+        }
+    }
+
+    // Resume an existing attempt by its own ID (history Resume button, result 409).
+    async function resumeExamAttempt(attemptId) {
+        const seq = loading('Resuming test...');
+        try {
+            const data = await API.resumeAttempt(attemptId);
+            if (stale(seq)) return;
+            const attempt = data.attempt || data;
+            const status = attempt.status || '';
+
+            if (status && status !== 'in_progress') {
+                return navigate('/result/' + attemptId);
+            }
+
+            const testId = (attempt.test && attempt.test.id) || attempt.test_id;
+            if (testId) history.replaceState({}, '', '/exam/' + testId);
+
+            if (!mountExam(data)) return navigate('/tests');
+        } catch (e) {
+            if (stale(seq)) return;
+            toast(e.message || 'Could not resume the attempt', 'error');
+            navigate('/history');
         }
     }
 
@@ -218,16 +282,16 @@ const App = (() => {
        PAGE: Result
        ========================================================== */
     async function pageResult(attemptId) {
-        loading('Loading result...');
+        const seq = loading('Loading result...');
         try {
             const data = await API.result(attemptId);
-            const r = data.attempt || data;
-            r.attempt_id = attemptId;
-            render(Views.result({ ...r, ...data }));
+            if (stale(seq)) return;
+            render(Views.result(data));
         } catch (e) {
+            if (stale(seq)) return;
             if (e.status === 409) {
                 toast('Test still in progress', 'warning');
-                return navigate('/exam/' + attemptId);
+                return resumeExamAttempt(attemptId);
             }
             toast(e.message, 'error');
             navigate('/history');
@@ -235,17 +299,57 @@ const App = (() => {
     }
 
     /* ==========================================================
-       PAGE: Solution
+       PAGE: Solution (paginated)
        ========================================================== */
+    const SOLUTIONS_PER_PAGE = 10;
+    let solState = { attemptId: null, page: 1, last: 1, loading: false };
+
     async function pageSolution(attemptId) {
-        loading('Loading solutions...');
+        const seq = loading('Loading solutions...');
         try {
-            const data = await API.solutions(attemptId, '?per_page=50');
+            const data = await API.solutions(attemptId, '?per_page=' + SOLUTIONS_PER_PAGE + '&page=1');
+            if (stale(seq)) return;
             data.attempt_id = attemptId;
+            solState = {
+                attemptId,
+                page: Number(data.current_page || 1),
+                last: Number(data.last_page || 1),
+                loading: false,
+            };
             render(Views.solution(data));
         } catch (e) {
+            if (stale(seq)) return;
             toast(e.message, 'error');
             navigate('/history');
+        }
+    }
+
+    async function loadMoreSolutions() {
+        if (solState.loading || !solState.attemptId) return;
+        if (solState.page >= solState.last) return;
+        solState.loading = true;
+        const btn = document.getElementById('load-more-btn');
+        if (btn) { btn.disabled = true; btn.textContent = 'Loading...'; }
+        try {
+            const next = solState.page + 1;
+            const data = await API.solutions(solState.attemptId, '?per_page=' + SOLUTIONS_PER_PAGE + '&page=' + next);
+            solState.page = Number(data.current_page || next);
+            solState.last = Number(data.last_page || solState.last);
+            const items = Array.isArray(data.data) ? data.data : [];
+            const list = document.getElementById('solutions-list');
+            if (list) {
+                const empty = list.querySelector('.empty-state');
+                if (empty) empty.remove();
+                list.insertAdjacentHTML('beforeend', items.map(s => Views.solutionItem(s)).join(''));
+            }
+            const more = document.getElementById('solutions-more');
+            if (more) more.hidden = solState.page >= solState.last;
+        } catch (e) {
+            toast(e.message, 'error');
+        } finally {
+            solState.loading = false;
+            const b = document.getElementById('load-more-btn');
+            if (b) { b.disabled = false; b.textContent = 'Load More'; }
         }
     }
 
@@ -253,12 +357,15 @@ const App = (() => {
        PAGE: History
        ========================================================== */
     async function pageHistory() {
-        loading('Loading history...');
+        const seq = loading('Loading history...');
         try {
             const data = await API.attemptHistory('?per_page=20');
+            if (stale(seq)) return;
             render(Views.history(data));
         } catch (e) {
+            if (stale(seq)) return;
             toast(e.message, 'error');
+            render(Views.history({ data: [] }));
         }
     }
 
@@ -266,14 +373,38 @@ const App = (() => {
        PAGE: Profile
        ========================================================== */
     async function pageProfile() {
-        loading('Loading profile...');
+        const seq = loading('Loading profile...');
         try {
             const data = await API.getProfile();
+            if (stale(seq)) return;
             render(Views.profile(data.user ? data : { user: data }));
             bindProfileForm();
         } catch (e) {
-            render(Views.profile({ user: API.user() }));
+            if (stale(seq)) return;
+            // Still show the locally cached profile so the page is never blank.
+            render(Views.profile({ user: API.user() || {} }));
             bindProfileForm();
+        }
+    }
+
+    const PROFILE_FIELD_MAP = {
+        name: 'p-name',
+        phone: 'p-phone',
+        date_of_birth: 'p-dob',
+        gender: 'p-gender',
+        address: 'p-address',
+    };
+
+    function showFieldErrors(prefix, err) {
+        document.querySelectorAll('.form-error').forEach(el => { if (el.id !== prefix + '-error') el.textContent = ''; });
+        const main = document.getElementById(prefix + '-error');
+        if (main) main.textContent = err.message || '';
+        if (err.errors) {
+            for (const [field, msgs] of Object.entries(err.errors)) {
+                const id = (PROFILE_FIELD_MAP[field] || (prefix === 'profile' ? 'p-' + field : field)) + '-error';
+                const el = document.getElementById(id);
+                if (el) el.textContent = Array.isArray(msgs) ? msgs[0] : msgs;
+            }
         }
     }
 
@@ -281,6 +412,7 @@ const App = (() => {
         const pf = document.getElementById('profile-form');
         if (pf) pf.addEventListener('submit', async (e) => {
             e.preventDefault();
+            showFieldErrors('profile', { message: '' });
             const btn = document.getElementById('profile-btn');
             btn.disabled = true; btn.textContent = 'Saving...';
             try {
@@ -292,12 +424,27 @@ const App = (() => {
                     address: document.getElementById('p-address').value,
                 });
                 toast('Profile updated!');
+                pageProfile();
             } catch (err) {
-                const el = document.getElementById('profile-error');
-                if (el) el.textContent = err.message;
+                showFieldErrors('profile', err);
             } finally {
-                btn.disabled = false; btn.textContent = 'Save Changes';
+                const b = document.getElementById('profile-btn');
+                if (b) { b.disabled = false; b.textContent = 'Save Changes'; }
             }
+        });
+
+        // There is no authenticated change-password API — the documented flow is
+        // the emailed reset code. Validate and point the user there (never reload).
+        const pwf = document.getElementById('password-form');
+        if (pwf) pwf.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const cur = document.getElementById('cur-pass').value;
+            const nw = document.getElementById('new-pass').value;
+            const cf = document.getElementById('conf-pass').value;
+            if (!cur || !nw || !cf) { toast('All password fields are required', 'error'); return; }
+            if (nw !== cf) { toast('New passwords do not match', 'error'); return; }
+            toast('Password changes use an emailed reset code — continue on the Forgot Password page.', 'warning');
+            setTimeout(() => navigate('/forgot-password'), 1200);
         });
     }
 
@@ -318,8 +465,9 @@ const App = (() => {
                     email: document.getElementById('email').value,
                     password: document.getElementById('password').value,
                 });
-                API.setAuth(res.token, res.user);
-                toast('Welcome back, ' + res.user.name + '!');
+                if (!res.token) throw new Error('Login response did not include a token');
+                API.setAuth(res.token, res.user || {});
+                toast('Welcome back, ' + ((res.user && res.user.name) || '') + '!');
                 navigate('/dashboard');
             } catch (err) {
                 showFormError(err);
@@ -340,7 +488,8 @@ const App = (() => {
                     password: document.getElementById('password').value,
                     password_confirmation: document.getElementById('password_confirmation').value,
                 });
-                API.setAuth(res.token, res.user);
+                if (!res.token) throw new Error('Registration response did not include a token');
+                API.setAuth(res.token, res.user || {});
                 toast('Account created successfully!');
                 navigate('/dashboard');
             } catch (err) {
@@ -406,8 +555,11 @@ const App = (() => {
     // Start test
     function startTest(testId) { navigate('/exam/' + testId); }
 
-    // Resume test
-    function resumeTest(attemptId) { navigate('/exam/' + attemptId); }
+    // Resume an in-progress attempt (history list)
+    function resumeTest(attemptId) {
+        if (attemptId == null) return;
+        resumeExamAttempt(attemptId);
+    }
 
     // Exam controls
     function selectOption(qId, optIdx) {
@@ -464,8 +616,8 @@ const App = (() => {
         const subject = document.getElementById('filter-subject')?.value || '';
         const search = (document.getElementById('filter-search')?.value || '').toLowerCase();
         document.querySelectorAll('#tests-list .card').forEach(card => {
-            const matchSubject = !subject || card.dataset.subject === subject;
-            const matchSearch = !search || card.dataset.title.includes(search);
+            const matchSubject = !subject || (card.dataset.subject || '') === subject;
+            const matchSearch = !search || (card.dataset.title || '').includes(search);
             card.style.display = (matchSubject && matchSearch) ? '' : 'none';
         });
     }
@@ -474,12 +626,16 @@ const App = (() => {
     async function uploadPhoto(input) {
         const file = input.files[0];
         if (!file) return;
-        if (file.size > 2 * 1024 * 1024) { toast('Max 2MB', 'error'); return; }
+        if (file.size > 2 * 1024 * 1024) { toast('Photo must be 2MB or smaller', 'error'); input.value = ''; return; }
+        if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) { toast('Only JPEG, PNG or WebP images are allowed', 'error'); input.value = ''; return; }
         try {
             await API.uploadPhoto(file);
             toast('Photo updated!');
             pageProfile();
-        } catch (e) { toast(e.message, 'error'); }
+        } catch (e) {
+            toast(e.message, 'error');
+            input.value = '';
+        }
     }
 
     // Logout
@@ -517,12 +673,12 @@ const App = (() => {
     document.addEventListener('DOMContentLoaded', boot);
 
     return {
-        navigate, logout,
+        navigate, logout, toast,
         startTest, resumeTest,
         selectOption, clearAnswer, toggleFlag,
         nextQuestion, prevQuestion, goToQuestion,
         confirmSubmit, filterTests, uploadPhoto,
-        loadMoreSolutions: () => {},
+        loadMoreSolutions,
         route,
     };
 })();
