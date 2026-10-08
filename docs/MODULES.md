@@ -66,7 +66,7 @@ Logical data: `tests` (definition/status/scoring/access flags), `test_questions`
 
 ## 06. Exam Module
 
-**Status: Implemented.** `POST /api/attempts`, `GET /api/attempts/{attempt}`, `GET /api/attempts/{attempt}/questions/{question}`, `PUT /api/attempts/{attempt}/answers/{question}`, and `POST /api/attempts/{attempt}/submit` are protected by bearer auth and owner checks. Start snapshots the ordered question content/answer key/points; timer expiry is server-authoritative; answer writes are persisted immediately; submit is idempotent. Premium tests are denied until the Subscription Module exists. See [API.md](./API.md#attempt-api) and `backend/tests/Feature/ExamAttemptApiTest.php`.
+**Status: Implemented.** `POST /api/attempts`, `GET /api/attempts/{attempt}`, `GET /api/attempts/{attempt}/questions/{question}`, `PUT /api/attempts/{attempt}/answers/{question}`, and `POST /api/attempts/{attempt}/submit` are protected by bearer auth and owner checks. Start snapshots the ordered question content/answer key/points; timer expiry is server-authoritative; answer writes are persisted immediately; submit is idempotent. Starting is also idempotent: a running attempt is resumed (`200`, `resumed: true`) instead of creating a duplicate timer, and stale open attempts past their deadline are finalized as `expired`. Premium tests require an active entitlement verified through `SubscriptionService::canAccessTest()` (otherwise `403`). See [API.md](./API.md#attempt-api) and `backend/tests/Feature/ExamAttemptApiTest.php`.
 
 **Purpose:** control one timed student attempt, question navigation, reliable answer saving, and final submission.
 
@@ -206,6 +206,8 @@ Logical data: implemented `referral_codes`, `referrals` (inviter, invitee, statu
 
 ## 12. Coupon Module
 
+**Status: Implemented.** Admins manage coupons through `GET|POST /api/admin/coupons`, `PATCH /api/admin/coupons/{coupon}`, and `POST /api/admin/coupons/{coupon}/disable`, with the `admin` role enforced server-side. Authenticated students quote a coupon with `POST /api/coupons/validate` and `{ "code": "NURSE10", "product_id": 2 }`; the server checks the date window, active flag, currency, product eligibility, minimum order value, and remaining global/per-user redemption limits, caps any discount at the eligible subtotal, and never accepts a client-computed discount or total. Checkout reserves a coupon atomically (unique per order/user/coupon, re-validated under a row lock) and completes the redemption only when the order is paid; unpaid reservations are released after their expiry window. One coupon per order, so coupon combination is denied. See `backend/tests/Feature/CouponApiTest.php`.
+
 **Purpose:** apply validated promotions to eligible orders/subscriptions.
 
 Proposed endpoints:
@@ -227,6 +229,8 @@ Rules:
 - Coupon combination is denied unless all relevant coupons explicitly allow stacking.
 
 ## 13. Wallet Module
+
+**Status: Implemented.** `GET /api/wallet`, `GET /api/wallet/transactions?page&per_page`, `GET /api/wallet/transactions/{transaction}`, `POST /api/wallet/topup`, and `POST /api/wallet/spend` are bearer-protected and owner-scoped (another user's entry returns `404`). Balances are integer poisha derived from the append-only `wallet_transactions` ledger (signed amounts: credits positive, debits negative) with a cached projection reconciled against the ledger; debits are atomic under a wallet row lock and can never exceed available funds; every ledger write carries a unique idempotency key, so retried spends return the original result without a second debit. The spend amount always comes from the order, never from the client. Top-ups create a pending order that credits the wallet only after a verified payment callback; reversals/refunds remain future work as separate compensating entries. No payment credentials are ever stored in the wallet. External payment integration is not verified end to end. See `backend/tests/Feature/WalletApiTest.php`.
 
 **Purpose:** expose an auditable monetary balance, credits/debits, permitted spending, and statement history.
 
@@ -250,6 +254,8 @@ Logical data: `wallets` (user, currency, optional reconciled balance) and immuta
 
 ## 14. Subscription/Premium Module
 
+**Status: Implemented.** `GET /api/subscription-packages` (public catalogue), `GET /api/subscriptions/me`, `POST /api/subscriptions/checkout` with `{ "package_id": 1, "coupon_code": "..." }`, and `GET /api/tests/{test}/access` are live. Packages carry name, price in integer poisha, duration, active flag, and explicit entitlements (`all_premium_tests` or specific premium test IDs) in `package_entitlements`. A subscription becomes active only after verified payment (or a fully discounted zero-total order), stores `starts_at`/`ends_at` in UTC, and grants access only while it is inside that window; pending, failed, expired, cancelled, and refunded records grant nothing. Each confirmed purchase creates its own subscription record, so renewals never silently extend or overlap another record. `SubscriptionService::canAccessTest()`/`hasActiveEntitlement()` and the `/api/tests/{test}/access` endpoint are the server-side gate, and both the Model Test detail endpoint (`GET /api/tests/{test}`) and attempt start (`POST /api/attempts`) now call `canAccessTest()`, returning `403` for premium content without an active entitlement. See `backend/tests/Feature/SubscriptionApiTest.php`.
+
 **Purpose:** sell time-bound packages and enforce Free/Premium access on the server.
 
 Proposed endpoints:
@@ -270,6 +276,8 @@ Rules:
 Logical data: `subscription_packages`, immutable/configured `package_entitlements`, `subscriptions`, and links to paid orders.
 
 ## 15. Payment Module
+
+**Status: Implemented, external gateway integration NOT verified end to end.** `POST /api/payments/checkout` with `{ "order_id": 1, "provider": "bkash" }`, `GET /api/payments/{payment}`, `POST /api/payments/{payment}/verify`, and the public `POST /api/payments/callback/{provider}` are live for the provider names `bkash`, `nagad`, and `sslcommerz`. Payments store an internal unique reference, a unique provider transaction reference, and the exact integer-poisha amount calculated by the server from the order; only `pending -> paid|failed` transitions are accepted, duplicate callbacks are processed idempotently, and a successful confirmation settles the order (subscription activation or wallet credit) inside the same database transaction as the paid status change, rolling back completely when fulfillment fails. The callback is authenticated with an HMAC-SHA256 signature over a canonical payload using the `PAYMENT_WEBHOOK_SECRET` environment/config value; with no secret configured it refuses with `503`, and the verify endpoint records the request but never fakes success. No real gateway credentials are configured and no provider call has been verified: `provider_action` is explicitly `requires_provider_configuration` with a null redirect, so this module must not be described as a working external payment integration. See `backend/tests/Feature/PaymentApiTest.php`.
 
 **Purpose:** collect orders via bKash, Nagad, SSLCommerz, or another configured gateway and confirm payment safely.
 
@@ -338,6 +346,8 @@ Rules:
 Logical data: `notifications` (or Laravel notifications table), `notification_preferences`, and `announcements` with target audience and publish window.
 
 ## 18. Progress/Analytics Module
+
+**Status: Partially implemented.** `GET /api/analytics/overview`, `GET /api/analytics/subjects`, and `GET /api/analytics/topics` are bearer-protected and aggregate only the caller's finalized attempts. The overview returns `total_tests`, `last_score`, `average_score`, `accuracy_rate`, `test_count`, `completion_rate`, `attempt_count`, and `in_progress_count`; subject analysis returns per-subject attempt/test counts, correct/wrong/skipped totals, average and best percentage, pass rate, and accuracy; topic analysis returns per-topic counts, accuracy, and an `is_weak` flag that requires both accuracy at or below `weak_threshold` (50) and a minimum sample of `min_sample` (5) answered questions, sorted weakest-first. Zero attempts are reported as `0`/`null` statistics rather than 0% performance. Date-range filters (`from`/`to`) and the `GET /api/analytics/progress` trend endpoint remain planned. See [API.md](./API.md#analytics-api) and `backend/tests/Feature/AnalyticsApiTest.php`.
 
 **Purpose:** help a student identify performance by subject/topic, weakness, and change over time.
 

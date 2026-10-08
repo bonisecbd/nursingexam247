@@ -36,12 +36,24 @@ Use MySQL 8.0+ or MariaDB 10.11+. The database is the source of truth for tests,
 | description | text nullable | Subject description |
 | is_active | boolean | Active flag |
 
+### topics
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| id | bigint unsigned | Primary key |
+| subject_id | bigint unsigned | Subject that owns the topic |
+| name | string(120) | Unique within the subject |
+| is_active | boolean | Inactive topics disappear from student-facing lists |
+
+Topics are deactivated rather than deleted so historical questions and analytics keep their references (`questions.topic_id` is `ON DELETE SET NULL`).
+
 ### questions
 
 | Column | Type | Notes |
 |---|---|---|
 | id | bigint unsigned | Primary key |
 | subject_id | bigint unsigned | Active subject that owns the question |
+| topic_id | bigint unsigned nullable | Optional topic for progress analytics; set to null when the question moves to another subject |
 | question_text | text | Student-facing question |
 | options | json | Ordered answer choices |
 | correct_option | unsigned small integer | 1-based correct choice; never return in an active test response |

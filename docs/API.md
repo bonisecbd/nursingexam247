@@ -139,16 +139,26 @@ The `/admin/dashboard` Subjects page supports searching, status filters, create/
 
 ### List topics
 
-`GET /api/topics?subject_id={id}`
+`GET /api/topics?subject_id={id}&search={text}&per_page={1..100}`
+
+Implemented: publicly lists active topics ordered by name, paginated (default 15), optionally filtered by subject or name search. Each item includes its `subject` (`id`, `name`, `code`).
 
 ### Create topic
 
-`POST /api/topics`
+`POST /api/topics` (authentication required; `admin` or `editor` role)
 
 Required fields:
 
 - `subject_id`
 - `name`
+
+Optional: `is_active` (default `true`). The subject must exist and be active, and the name must be unique within that subject (`422` otherwise). Responds `201` with `message` and `topic`.
+
+### Update topic
+
+`PATCH /api/topics/{topic}` (authentication required; `admin` or `editor` role)
+
+Optional fields: `name`, `is_active`. Duplicate names within the subject are rejected. Topics are deactivated rather than deleted so historical question and analytics references remain intact.
 
 ## Questions
 
@@ -191,7 +201,7 @@ The following question-bank management endpoints require an authenticated `admin
 - `POST /api/admin/questions` creates a question.
 - `PATCH /api/admin/questions/{question}` updates a question or changes its active state.
 
-Create/update fields: `subject_id`, `question_text`, ordered `options` (2–6 strings), one-based `correct_option`, optional `explanation`, `difficulty`, and `is_active`. New questions require an active subject. Questions assigned to published tests are locked against edits and deactivation to preserve published test content. Referenced questions are deactivated instead of deleted. Bulk import and question-report workflows remain unimplemented.
+Create/update fields: `subject_id`, `question_text`, optional `topic_id` (a topic belonging to that subject; moving a question to another subject without supplying `topic_id` detaches the old topic), ordered `options` (2–6 strings), one-based `correct_option`, optional `explanation`, `difficulty`, and `is_active`. New questions require an active subject. Questions assigned to published tests are locked against edits and deactivation to preserve published test content. Referenced questions are deactivated instead of deleted. Bulk import and question-report workflows remain unimplemented.
 
 The admin console Question Bank supports search, subject/status/difficulty filters, paginated results, question create/edit, and activation state.
 
@@ -310,7 +320,7 @@ Request:
 }
 ```
 
-Implemented: creates a timed attempt and snapshots the question text, options, correct option, explanation, and points in server storage. Response includes attempt ID, `started_at`, server-calculated `expires_at` and `time_remaining_seconds`, stable ordered questions, and saved answers. Correct answers and explanations are omitted until a future solution endpoint is implemented. Premium tests return `403` until subscription entitlements are implemented.
+Implemented: creates a timed attempt and snapshots the question text, options, correct option, explanation, and points in server storage. Response includes attempt ID, `started_at`, server-calculated `expires_at` and `time_remaining_seconds`, stable ordered questions, and saved answers, plus `resumed` (`false` on a fresh start). Correct answers and explanations are omitted. Premium tests return `403` unless the caller holds an active premium entitlement (see `GET /api/tests/{test}/access`). Starting is idempotent: if the student already has a running attempt for the test, the endpoint returns `200` with that same attempt (`resumed: true`) instead of creating a duplicate timer, and any stale open attempt past its deadline is finalized as `expired`.
 
 ### Get current question
 
@@ -349,30 +359,25 @@ Implemented: submission is idempotent; retries return the same persisted attempt
 
 ### Test unlock
 
-`GET /api/tests/{id}/unlock-status`
+`GET /api/tests/{id}/unlock-status` (authentication required)
 
-The response should indicate whether the test is available to the current student. Test `02` remains locked until test `01` is completed; test `03` remains locked until test `02` is completed.
+Implemented: reports whether the published test is available to the current student. Published tests unlock sequentially by creation order: test `02` stays locked until test `01` is completed (submitted or expired), test `03` until `02` is completed, and so on. The first test in the sequence is always unlocked, and a test the student already finished never reports as locked. Draft tests return `404`.
 
 Response:
 
 ```json
 {
-  "attempt": {
-    "id": 12,
-    "status": "submitted",
-    "score": 7.5,
-    "percentage": 75,
-    "correct_count": 6,
-    "incorrect_count": 1,
-    "unanswered_count": 1
-  },
-  "analysis": {
-    "subject_scores": [],
-    "topic_scores": [],
-    "weak_topics": []
-  }
+  "test": { "id": 2, "title": "Nursing Model Test 02", "code": "MT02" },
+  "locked": true,
+  "reason": "Complete \"Nursing Model Test 01\" first to unlock this test.",
+  "code": "previous_test_incomplete",
+  "required_test": { "id": 1, "title": "Nursing Model Test 01", "code": "MT01" },
+  "previous_test": { "id": 1, "title": "Nursing Model Test 01", "code": "MT01" },
+  "completed_attempt": null
 }
 ```
+
+`code` is one of `first_in_sequence`, `previous_test_incomplete`, `previous_test_completed`, or `completed`. `required_test` is only present while locked. `completed_attempt` contains `id`, `status`, `score`, `percentage`, and `finished_at` when the student already finished this test, otherwise `null`.
 
 ### Get attempt history
 
@@ -479,32 +484,56 @@ Links the authenticated new account to an active student inviter once, within 24
 
 ## Analytics API
 
+All three endpoints require authentication and only aggregate the caller's own finalized (`submitted` or `expired`) attempts. Scores are computed on the server; the client never supplies them.
+
 ### Overview
 
 `GET /api/analytics/overview`
 
-Returns:
+Returns a flat object:
 
-- Total tests
-- Last score
-- Average score
-- Accuracy rate
-- Test count
-- Completion rate
+```json
+{
+  "total_tests": 12,
+  "last_score": 60,
+  "average_score": 70,
+  "accuracy_rate": 70,
+  "test_count": 6,
+  "completion_rate": 50,
+  "attempt_count": 9,
+  "in_progress_count": 1
+}
+```
+
+- `total_tests` - published tests currently available on the platform
+- `test_count` - distinct tests the student has completed
+- `last_score` - percentage of the most recent finalized attempt (`null` with no attempts)
+- `average_score` - mean percentage across finalized attempts (`0` with no attempts)
+- `accuracy_rate` - `correct / (correct + incorrect) * 100` across finalized attempts
+- `completion_rate` - `test_count / total_tests * 100`
+- `attempt_count` and `in_progress_count` - finalized and open attempts
+
+Whole numbers are serialized as integers and fractional values as decimals.
 
 ### Subject analysis
 
 `GET /api/analytics/subjects`
 
+Returns `data` (one row per subject with finalized attempts) plus `meta.subject_count`. Each row: `subject_id`, `subject_name`, `subject_code`, `attempt_count`, `test_count`, `correct_count`, `incorrect_count`, `unanswered_count`, `average_percentage`, `best_percentage`, `pass_rate`, and `accuracy_rate`.
+
 ### Topic analysis
 
 `GET /api/analytics/topics`
+
+Returns `data` sorted weakest-first (ascending `accuracy_rate`) plus `meta.topic_count`, `meta.weak_threshold` (`50`), and `meta.min_sample` (`5`). Each row: `topic_id`, `topic_name`, `subject_id`, `subject_name`, `answered_count`, `attempted_count`, `skipped_count`, `correct_count`, `incorrect_count`, `accuracy_rate`, and `is_weak` (accuracy at or below the weak threshold **and** at least `min_sample` answered questions, so a thin sample is never labeled weak). Built from saved answer snapshots joined to each question's topic; questions without a topic never appear. Coverage is capped at the 100 most-answered topics.
 
 ## Modules 08–20: implementation specification
 
 The requirements and proposed endpoint/data contracts for Solutions, Leaderboards, Referrals, Coupons, Wallet, Subscriptions, Payments, Challenges, Notifications, Progress/Analytics, Admin, and Settings are documented in [MODULES.md](./MODULES.md). Gamification endpoints are now implemented as described above.
 
-**Implementation status:** Authentication, Profile, Subject, Model Test, Exam, Result, Leaderboard, Gamification, and referral attribution APIs are implemented. Other sections in this API blueprint are planned contracts, not a claim that those routes or features are currently implemented. Confirm the current route registry and code before relying on any endpoint. `MODULES.md` defines the business rules, authorization, validation, and response expectations that an implementation must follow.
+**Implementation status:** Authentication, Profile, Subject, Topics, Model Test, Exam (including idempotent start and sequential test unlock), Result, Leaderboard, Gamification, referral attribution, and student Progress/Analytics APIs are implemented and covered by feature tests. The Coupon, Wallet, Subscription/Premium, and Payment endpoints from modules 12-15 are implemented and specified in [MODULES.md](./MODULES.md). Remaining sections in this blueprint (generic student question CRUD, bulk import) are planned contracts, not a claim that those routes are currently implemented. Confirm the current route registry and code before relying on any endpoint. `MODULES.md` defines the business rules, authorization, validation, and response expectations that an implementation must follow.
+
+API routes are registered in two files: `backend/routes/api.php` and `backend/routes/api_progress.php` (topics, unlock status, analytics), both mounted under the `/api` prefix by `backend/bootstrap/app.php`.
 
 ## Error response format
 
