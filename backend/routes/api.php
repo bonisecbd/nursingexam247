@@ -78,6 +78,13 @@ Route::get('/', function () {
             'admin_coupons' => 'GET|POST /api/admin/coupons',
             'admin_coupon_details' => 'PATCH /api/admin/coupons/{coupon}',
             'admin_coupon_disable' => 'POST /api/admin/coupons/{coupon}/disable',
+            'topics' => 'GET /api/topics',
+            'topic_create' => 'POST /api/topics',
+            'topic_update' => 'PATCH /api/topics/{topic}',
+            'test_unlock_status' => 'GET /api/tests/{test}/unlock-status',
+            'analytics_overview' => 'GET /api/analytics/overview',
+            'analytics_subjects' => 'GET /api/analytics/subjects',
+            'analytics_topics' => 'GET /api/analytics/topics',
         ],
     ]);
 });
