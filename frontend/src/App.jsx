@@ -400,7 +400,7 @@ const adminMenu = [
       { id: 'results-analytics', label: 'Analytics', page: 'results-analytics' },
     ] },
     { id: 'leaderboard', label: 'Leaderboard', icon: 'trophy', soon: true, children: ['Daily', 'Weekly', 'Monthly', 'All Time'] },
-    { id: 'gamification', label: 'Gamification', icon: 'spark', soon: true, children: ['Points / XP', 'Levels', 'Badges', 'Achievements', 'Streaks'] },
+    { id: 'gamification', label: 'Gamification', icon: 'spark', adminOnly: true, children: [{ id: 'gamification-rules', label: 'Reward rules', page: 'gamification' }] },
     { id: 'challenges', label: 'Challenges', icon: 'star', soon: true, children: ['Daily Challenge', 'Weekly Challenge', 'Competition'] },
   ] },
   { heading: 'COMMERCE', items: [
@@ -1616,6 +1616,8 @@ function AdminDashboard({ user, token, onLogout, busy, sessionError, navigateTo 
             <AdminQuestionBank token={token} page={activePage} onNotice={setNotice} />
           ) : activePage === 'users' || activePage.startsWith('users-') ? (
             <AdminUsers token={token} page={activePage} onNotice={setNotice} />
+          ) : activePage === 'gamification' ? (
+            <AdminGamificationRules token={token} isAdmin={isAdmin} />
           ) : (
             <section className="admin-coming-page"><span className="admin-coming-icon"><Icon name={selectedItem?.icon || 'settings'} size={27} /></span><span className="eyebrow">PLATFORM MODULE</span><h1>{selectedItem?.label || 'Management'}</h1><p>This section is part of the platform management plan, but its management API and interface are not implemented yet.</p><div className="admin-coming-status"><Icon name="clock" size={16} /> Coming soon — no data or actions are available here yet.</div><button className="button button-outline" onClick={() => selectPage('dashboard')}>Back to dashboard <Icon name="arrow" size={15} /></button></section>
           )}
@@ -1670,6 +1672,117 @@ function LeaderboardPanel({ token }) {
           <small>{leader.eligible_test_count} tests</small>
         </div>)}
       </div> : !current?.error ? <p className="empty-state">No opted-in students have completed a test in this period yet.</p> : null}
+    </section>
+  )
+}
+
+function GamificationPanel({ token }) {
+  const [result, setResult] = useState(null)
+
+  useEffect(() => {
+    let active = true
+    apiRequest('/gamification/me', { token })
+      .then((response) => { if (active) setResult({ data: response.gamification }) })
+      .catch((error) => { if (active) setResult({ error: error.message }) })
+    return () => { active = false }
+  }, [token])
+
+  const gamification = result?.data
+  const nextLevel = gamification?.next_level
+  const levelProgress = nextLevel && gamification?.level
+    ? Math.min(100, ((gamification.xp_total - gamification.level.xp_required) / (nextLevel.xp_required - gamification.level.xp_required)) * 100)
+    : 100
+
+  return (
+    <section className="dashboard-section gamification-panel">
+      <div className="dashboard-section-heading"><div><span className="eyebrow">YOUR LEARNING REWARDS</span><h2>Progress &amp; badges</h2></div><span className="dashboard-count">{gamification ? `${gamification.completed_test_count} tests completed` : 'Gamification'}</span></div>
+      {result?.error && <div className="form-error dashboard-error" role="alert">{result.error}</div>}
+      {!result ? <div className="dashboard-loading">Loading your rewards…</div> : gamification ? <>
+        <div className="gamification-stats">
+          <div><span>LEVEL {gamification.level?.number || 1}</span><b>{gamification.level?.title || 'New Learner'}</b></div>
+          <div><span>EXPERIENCE</span><b>{gamification.xp_total.toLocaleString()} XP</b></div>
+          <div><span>POINTS</span><b>{gamification.points_balance.toLocaleString()}</b></div>
+        </div>
+        <div className="gamification-progress">
+          <div><span>{nextLevel ? `${nextLevel.xp_remaining} XP to ${nextLevel.title}` : 'Highest level reached'}</span><b>{Math.round(levelProgress)}%</b></div>
+          <div className="gamification-progress-track"><i style={{ width: `${levelProgress}%` }} /></div>
+        </div>
+        <div className="gamification-badges">
+          {gamification.badges.map((badge) => <article className={`gamification-badge${badge.earned ? ' is-earned' : ''}`} key={badge.code}>
+            <span><Icon name={badge.icon} size={18} /></span>
+            <div><b>{badge.name}</b><small>{badge.earned ? 'Earned' : badge.description}</small></div>
+          </article>)}
+        </div>
+        {gamification.recent_point_transactions.length > 0 && <div className="gamification-latest-reward"><Icon name="spark" size={15} /> Latest reward: <b>{gamification.recent_point_transactions[0].amount > 0 ? '+' : ''}{gamification.recent_point_transactions[0].amount} points</b> · {gamification.recent_point_transactions[0].description}</div>}
+      </> : null}
+    </section>
+  )
+}
+
+function AdminGamificationRules({ token, isAdmin }) {
+  const [data, setData] = useState(null)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    apiRequest('/admin/gamification/rules', { token })
+      .then((response) => { if (active) setData(response) })
+      .catch((requestError) => { if (active) setError(requestError.message) })
+    return () => { active = false }
+  }, [token])
+
+  async function updateRules(event) {
+    event.preventDefault()
+    setError('')
+    setNotice('')
+    setBusy(true)
+    const fields = new FormData(event.currentTarget)
+    try {
+      const response = await apiRequest('/admin/gamification/rules', {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({
+          points_per_test: Number(fields.get('points_per_test')),
+          xp_per_test: Number(fields.get('xp_per_test')),
+        }),
+      })
+      setData((current) => ({ ...current, rules: response.rules }))
+      setNotice(response.message)
+    } catch (requestError) {
+      setError(requestError.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="admin-module-page admin-gamification-page">
+      <div className="admin-page-heading"><div><span className="eyebrow">GAMIFICATION</span><h1>Reward rules</h1><p>Configure rewards for the first valid completion of each published test. Existing ledger entries are never rewritten.</p></div></div>
+      {error && <div className="form-error dashboard-error" role="alert">{error}</div>}
+      {notice && <div className="admin-success" role="status"><Icon name="check" size={17} /> {notice}</div>}
+      {!data ? <div className="dashboard-loading">Loading reward rules…</div> : <>
+        <section className="admin-panel gamification-rule-panel">
+          <div className="admin-panel-heading"><div><span className="eyebrow">FIRST COMPLETION ONLY</span><h2>Test completion rewards</h2></div><span className="admin-panel-icon"><Icon name="spark" /></span></div>
+          {!isAdmin ? <p className="empty-state">Only an administrator can change reward rules.</p> : <form className="auth-form admin-gamification-form" onSubmit={updateRules}>
+            <div className="admin-form-row">
+              <label>Points per test<input name="points_per_test" type="number" min="1" max="10000" defaultValue={data.rules.points_per_test} required /></label>
+              <label>XP per test<input name="xp_per_test" type="number" min="1" max="10000" defaultValue={data.rules.xp_per_test} required /></label>
+            </div>
+            <button className="button button-primary auth-submit" type="submit" disabled={busy}>{busy ? 'Saving rules…' : 'Save reward rules'} {!busy && <Icon name="arrow" size={17} />}</button>
+          </form>}
+          <p className="admin-data-note">XP cannot be spent. Points and XP are recorded in separate append-only ledgers. Re-submitting or retrying the same test never earns duplicate rewards.</p>
+        </section>
+        <div className="admin-gamification-grid">
+          <section className="admin-panel"><div className="admin-panel-heading"><div><span className="eyebrow">VERSIONED THRESHOLDS</span><h2>Levels</h2></div></div>
+            {data.level_rules.map((level) => <div className="gamification-admin-row" key={level.level}><b>Level {level.level} · {level.title}</b><span>{Number(level.xp_required).toLocaleString()} XP</span></div>)}
+          </section>
+          <section className="admin-panel"><div className="admin-panel-heading"><div><span className="eyebrow">AUTOMATIC AWARDS</span><h2>Badges</h2></div></div>
+            {data.badges.map((badge) => <div className="gamification-admin-row" key={badge.code}><b>{badge.name}</b><span>{badge.description}</span></div>)}
+          </section>
+        </div>
+      </>}
     </section>
   )
 }
@@ -1783,6 +1896,7 @@ function Dashboard({ user, token, onLogout, busy, sessionError, isAdminRoute = f
           <span><b>{isStaff ? `${user.role === 'admin' ? 'Administrator' : 'Editor'} account` : 'Your student account is ready'}</b><small>{isStaff ? 'You’re signed in with your assigned staff role.' : 'Pick a subject below and make today count, at your own pace.'}</small></span>
           <span className="role-badge">{user.role}</span>
         </div>
+        {!isStaff && <GamificationPanel token={token} />}
         {!isStaff && <LeaderboardPanel token={token} />}
         {loadError && <div className="form-error dashboard-error" role="alert">{loadError}</div>}
         <section className="dashboard-section">

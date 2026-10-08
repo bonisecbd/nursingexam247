@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\AttemptAnswer;
 use App\Models\ExamAttempt;
 use App\Models\ModelTest;
+use App\Services\GamificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -168,25 +169,31 @@ class ExamAttemptController extends Controller
         });
     }
 
-    public function submit(Request $request, int $attempt): JsonResponse
+    public function submit(Request $request, int $attempt, GamificationService $gamification): JsonResponse
     {
         $attempt = $this->ownedAttempt($request, $attempt);
-        $attempt = DB::transaction(function () use ($attempt): ExamAttempt {
+        $submission = DB::transaction(function () use ($attempt, $gamification): array {
             $lockedAttempt = ExamAttempt::query()->lockForUpdate()->findOrFail($attempt->id);
 
             if ($lockedAttempt->status === 'in_progress') {
                 $status = now()->greaterThanOrEqualTo($lockedAttempt->expires_at) ? 'expired' : 'submitted';
+                $finishedAttempt = $this->finish($lockedAttempt, $status);
 
-                return $this->finish($lockedAttempt, $status);
+                return [
+                    'attempt' => $finishedAttempt,
+                    'reward' => $gamification->awardTestCompletion($finishedAttempt),
+                ];
             }
 
-            return $lockedAttempt;
+            return ['attempt' => $lockedAttempt, 'reward' => null];
         });
+        $attempt = $submission['attempt'];
 
         return response()->json([
             'message' => $attempt->status === 'expired' ? 'The exam time expired.' : 'Exam submitted successfully.',
             'attempt' => $this->attemptData($attempt->load('test:id,title,duration_minutes')),
             'result' => $this->resultData($attempt),
+            'reward' => $submission['reward'],
         ]);
     }
 

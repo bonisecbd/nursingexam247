@@ -161,24 +161,25 @@ Logical data: optional `leaderboard_entries` cache keyed by period type/key and 
 
 ## 10. Gamification Module
 
-**Purpose:** reward verified learning activity with points, XP, levels, badges, and achievements.
+**Status: Implemented for published-test completion.** The first submitted completion of each published test awards configurable points and XP. Retries, expired attempts, non-student accounts, inactive users, and test-author previews do not earn rewards. Students see their balances, level, badges, and recent point ledger in the dashboard; administrators can update future point/XP awards.
 
 Proposed endpoints:
 
 - `GET /api/gamification/me` — XP, level, points balance, badges, achievement progress.
 - `GET /api/gamification/badges` — public badge catalogue and eligibility descriptions.
 - `GET /api/gamification/achievements` — caller's achievement progress/completions.
+- `GET /api/admin/gamification/rules` and `PATCH /api/admin/gamification/rules` — view or update future test-completion rewards (admin only).
 
 Rules:
 
-- Award points/XP only from server-verified events such as a first valid test submission or challenge completion. Specify amount and eligibility in admin-controlled rules.
+- Award 5 points and 10 XP by default on the first valid submitted completion of each published test; the admin can configure future awards from 1 to 10,000. Challenge rewards are not included until the Challenge module is implemented.
 - Use a unique idempotency key per user/source event/reward type, so retried submissions cannot grant duplicate rewards.
 - Store an immutable `point_transactions` ledger; derive current point balance from the ledger or reconcile a cached balance against it.
 - Store XP events separately from spendable points. XP/level progress cannot be spent as wallet money.
-- Level thresholds and badges are explicit versioned rules; badge award is unique per user/badge and records award time/source.
+- Level thresholds (version 1: 0, 100, 300, 600, and 1,000 XP) and badge criteria are explicit versioned rules; badge award is unique per user/badge and records award time/source.
 - Never grant rewards for an unsubmitted, invalid, duplicate, refunded, or administratively disqualified activity. Reversals must be a separate compensating ledger entry, never mutation/deletion of the original.
 
-Logical data: `reward_rules`, `point_transactions`, `xp_events`, `badge_definitions`, `user_badges`, `achievement_definitions`, and `user_achievements`.
+Logical data: `gamification_settings`, immutable `point_transactions`, separate `xp_events`, versioned `gamification_levels` and `badge_definitions`, and unique `user_badges`. Reversals and challenge achievements remain future work.
 
 ## 11. Referral Module
 

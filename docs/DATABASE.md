@@ -84,9 +84,18 @@ Use MySQL 8.0+ or MariaDB 10.11+. The database is the source of truth for tests,
 - `api_tokens`: stores SHA-256 hashes of 30-day bearer tokens; each token belongs to one user and is revoked on logout or password reset. `expires_at` is a `datetime` and must not change when `last_used_at` is updated.
 - `password_reset_otps`: stores hashed, expiring email OTPs and failed verification attempt counts.
 
+### Gamification
+
+- `gamification_settings`: singleton reward policy editable by admins; updates apply only to future awards.
+- `point_transactions`: append-only integer point ledger with per-user/source/reward uniqueness.
+- `xp_events`: separate append-only XP ledger; XP is never spendable as wallet points.
+- `gamification_levels`: explicit versioned XP thresholds and titles.
+- `badge_definitions`: versioned badge criteria and public descriptions.
+- `user_badges`: one award per user/badge, with an award time and source attempt.
+
 ## Planned product module data
 
-Tables and fields for exam delivery, results, rewards, payments, subscriptions, challenges, notifications, administration, and settings are specified in [MODULES.md](./MODULES.md). These are a logical design, not a claim that the corresponding migrations or features already exist. Keep money/reward ledgers append-only, persist payment provider references uniquely, and derive results from saved answers on the server.
+Tables and fields for planned payments, subscriptions, challenges, notifications, administration, and settings are specified in [MODULES.md](./MODULES.md). Those sections remain a logical design, not a claim that the corresponding migrations or features already exist. Keep money/reward ledgers append-only, persist payment provider references uniquely, and derive results from saved answers on the server.
 
 ### topics
 

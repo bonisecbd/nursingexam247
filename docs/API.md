@@ -344,7 +344,7 @@ Request body can be empty or include a final confirmation flag. The server must 
 - Percentage
 - Pass/fail status
 
-Implemented: submission is idempotent; retries return the same persisted attempt result. The server expires attempts at the deadline and calculates score/counts from the saved question snapshot. `GET /api/attempts/{attemptId}` resumes an owned in-progress attempt or returns its final status/result.
+Implemented: submission is idempotent; retries return the same persisted attempt result. The server expires attempts at the deadline and calculates score/counts from the saved question snapshot. The response includes `reward: { awarded, points, xp, new_badges }` only when this is the first valid submitted completion of a published test by an active student who is not its author; otherwise `reward` is `null`. Rewards are committed in the same transaction as the finalized attempt. `GET /api/attempts/{attemptId}` resumes an owned in-progress attempt or returns its final status/result.
 
 ### Test unlock
 
@@ -428,6 +428,34 @@ Returns ranked entries with display name, optional public avatar, score, and eli
 
 Returns the caller's rank, aggregate score, eligible test count, and own achievement timestamp even when beyond the first leaderboard page. Opted-out or otherwise ineligible users receive `rank: null` and `eligible: false`. Private profile data and answer-level results are never returned.
 
+## Gamification API
+
+### My progress
+
+`GET /api/gamification/me` (authentication required)
+
+Returns the caller's XP total, non-spendable level progress, points balance derived from the ledger, completed-test count, earned/unearned badges, and up to 10 recent point transactions. XP and points are separate, server-calculated balances.
+
+### Badge catalogue
+
+`GET /api/gamification/badges` (public)
+
+Returns active badge definitions, versioned eligibility requirements, and descriptions without user-specific data.
+
+### My achievements
+
+`GET /api/gamification/achievements` (authentication required)
+
+Returns the caller's completed-test progress and badge award state.
+
+### Admin reward rules
+
+`GET /api/admin/gamification/rules` and `PATCH /api/admin/gamification/rules` (admin only)
+
+Admins can view or set `points_per_test` and `xp_per_test` (integer values from 1 to 10,000). New values apply only to future first-time completions; historical append-only ledger entries are unchanged. The level thresholds and active badge rules are included in the GET response.
+
+The first submitted completion of each published test earns 5 points and 10 XP by default. Repeated submissions, attempts that expire, inactive/non-student accounts, and test-author previews do not earn rewards. Point and XP events use unique idempotency keys tied to user and test.
+
 ## Analytics API
 
 ### Overview
@@ -453,9 +481,9 @@ Returns:
 
 ## Modules 08–20: implementation specification
 
-The requirements and proposed endpoint/data contracts for Solutions, Leaderboards, Gamification, Referrals, Coupons, Wallet, Subscriptions, Payments, Challenges, Notifications, Progress/Analytics, Admin, and Settings are documented in [MODULES.md](./MODULES.md).
+The requirements and proposed endpoint/data contracts for Solutions, Leaderboards, Referrals, Coupons, Wallet, Subscriptions, Payments, Challenges, Notifications, Progress/Analytics, Admin, and Settings are documented in [MODULES.md](./MODULES.md). Gamification endpoints are now implemented as described above.
 
-**Implementation status:** Authentication, Profile, Subject, Model Test, Exam, and Result APIs are implemented. Remaining sections in this API blueprint are planned contracts, not a claim that those routes or features are currently implemented. Confirm the current route registry and code before relying on any endpoint. `MODULES.md` defines the business rules, authorization, validation, and response expectations that an implementation must follow.
+**Implementation status:** Authentication, Profile, Subject, Model Test, Exam, Result, Leaderboard, and Gamification APIs are implemented. Other sections in this API blueprint are planned contracts, not a claim that those routes or features are currently implemented. Confirm the current route registry and code before relying on any endpoint. `MODULES.md` defines the business rules, authorization, validation, and response expectations that an implementation must follow.
 
 ## Error response format
 

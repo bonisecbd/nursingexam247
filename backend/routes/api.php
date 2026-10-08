@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\AdminSubjectController;
 use App\Http\Controllers\Api\AdminUserController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ExamAttemptController;
+use App\Http\Controllers\Api\GamificationController;
 use App\Http\Controllers\Api\LeaderboardController;
 use App\Http\Controllers\Api\ModelTestController;
 use App\Http\Controllers\Api\ProfileController;
@@ -30,6 +31,10 @@ Route::get('/', function () {
             'tests' => 'GET /api/tests',
             'leaderboards' => 'GET /api/leaderboards?period=daily|weekly|monthly|overall',
             'my_leaderboard_position' => 'GET /api/leaderboards/{period}/me',
+            'gamification' => 'GET /api/gamification/me',
+            'badges' => 'GET /api/gamification/badges',
+            'achievements' => 'GET /api/gamification/achievements',
+            'admin_gamification_rules' => 'GET|PATCH /api/admin/gamification/rules',
             'admin_dashboard' => 'GET /api/admin/dashboard',
             'admin_users' => 'GET /api/admin/users',
             'admin_user_details' => 'GET /api/admin/users/{user}',
@@ -70,6 +75,8 @@ Route::middleware(AuthenticateApiToken::class)->group(function (): void {
     Route::patch('/profile', [ProfileController::class, 'update']);
     Route::post('/profile/photo', [ProfileController::class, 'updatePhoto']);
     Route::get('/leaderboards/{period}/me', [LeaderboardController::class, 'me']);
+    Route::get('/gamification/me', [GamificationController::class, 'me']);
+    Route::get('/gamification/achievements', [GamificationController::class, 'achievements']);
 
     Route::post('/attempts', [ExamAttemptController::class, 'start']);
     Route::get('/attempts/{attempt}', [ExamAttemptController::class, 'resume']);
@@ -89,6 +96,7 @@ Route::get('/subjects/{subject}', [SubjectController::class, 'show']);
 Route::get('/tests', [ModelTestController::class, 'index']);
 Route::get('/tests/{test}', [ModelTestController::class, 'show']);
 Route::get('/leaderboards', [LeaderboardController::class, 'index']);
+Route::get('/gamification/badges', [GamificationController::class, 'badges']);
 
 Route::middleware(AuthenticateApiToken::class)->prefix('admin')->group(function (): void {
     Route::get('/dashboard', AdminDashboardController::class);
@@ -110,4 +118,6 @@ Route::middleware(AuthenticateApiToken::class)->prefix('admin')->group(function 
     Route::get('/exams', [AdminExamController::class, 'index']);
     Route::get('/exams/{attempt}', [AdminExamController::class, 'show']);
     Route::get('/results', [AdminResultController::class, 'index']);
+    Route::get('/gamification/rules', [GamificationController::class, 'adminRules']);
+    Route::patch('/gamification/rules', [GamificationController::class, 'updateAdminRules']);
 });
