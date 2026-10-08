@@ -34,6 +34,7 @@ const App = (() => {
             if (path === '/dashboard') return pageDashboard();
             if (path === '/tests') return pageTests();
             if (path === '/history') return pageHistory();
+            if (path === '/leaderboard') return pageLeaderboard();
             if (path === '/profile') return pageProfile();
 
             const examMatch = path.match(/^\/exam\/(\d+)$/);
@@ -370,6 +371,42 @@ const App = (() => {
     }
 
     /* ==========================================================
+       PAGE: Leaderboard
+       ========================================================== */
+    const LB_PERIODS = ['daily', 'weekly', 'monthly', 'overall'];
+
+    async function pageLeaderboard() {
+        const qs = new URLSearchParams(location.search);
+        const period = LB_PERIODS.indexOf(qs.get('period')) !== -1 ? qs.get('period') : 'daily';
+        const seq = loading('Loading leaderboard...');
+
+        const [standingsRes, positionRes] = await Promise.allSettled([
+            API.request('/leaderboards?period=' + period + '&per_page=50'),
+            API.request('/leaderboards/' + period + '/me'),
+        ]);
+        if (stale(seq)) return;
+
+        if (standingsRes.status === 'rejected') toast(standingsRes.reason.message || 'Could not load the leaderboard', 'error');
+        if (positionRes.status === 'rejected') toast(positionRes.reason.message || 'Could not load your position', 'error');
+
+        const lb = standingsRes.status === 'fulfilled' ? standingsRes.value : { data: [], meta: { period: period } };
+        const me = positionRes.status === 'fulfilled' ? positionRes.value : { leaderboard_opt_in: false, position: null };
+
+        render(Views.leaderboard({ lb, me, period }));
+    }
+
+    // Opt in/out of the public leaderboard (PATCH /api/profile).
+    async function toggleLeaderboardOptIn(optIn) {
+        try {
+            await API.updateProfile({ leaderboard_opt_in: !!optIn });
+            toast(optIn ? 'You joined the leaderboard.' : 'You left the leaderboard.');
+            route();
+        } catch (e) {
+            toast(e.message || 'Could not update your leaderboard preference', 'error');
+        }
+    }
+
+    /* ==========================================================
        PAGE: Profile
        ========================================================== */
     async function pageProfile() {
@@ -665,6 +702,7 @@ const App = (() => {
         if (page === 'result' && cfg.param) return pageResult(cfg.param);
         if (page === 'solution' && cfg.param) return pageSolution(cfg.param);
         if (page === 'history') return pageHistory();
+        if (page === 'leaderboard') return pageLeaderboard();
         if (page === 'profile') return pageProfile();
 
         route();
@@ -679,6 +717,10 @@ const App = (() => {
         nextQuestion, prevQuestion, goToQuestion,
         confirmSubmit, filterTests, uploadPhoto,
         loadMoreSolutions,
+        toggleLeaderboardOptIn,
         route,
     };
 })();
+
+// Inline handlers (sidebar, exam toasts) and exam.js look the app up on window.
+window.App = App;

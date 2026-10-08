@@ -31,6 +31,7 @@ const Views = (() => {
                     <a href="/dashboard" class="${active === 'dashboard' ? 'active' : ''}">Dashboard</a>
                     <a href="/tests" class="${active === 'tests' ? 'active' : ''}">Tests</a>
                     <a href="/history" class="${active === 'history' ? 'active' : ''}">History</a>
+                    <a href="/leaderboard" class="${active === 'leaderboard' ? 'active' : ''}">Leaderboard</a>
                 </div>
                 <div class="nav-user" onclick="navigate('/profile')">
                     <div class="avatar">${initial}</div>
@@ -47,6 +48,7 @@ const Views = (() => {
             <a href="/dashboard" class="${active === 'dashboard' ? 'active' : ''}">📊 Dashboard</a>
             <a href="/tests" class="${active === 'tests' ? 'active' : ''}">📝 Model Tests</a>
             <a href="/history" class="${active === 'history' ? 'active' : ''}">📜 Attempt History</a>
+            <a href="/leaderboard" class="${active === 'leaderboard' ? 'active' : ''}">🏆 Leaderboard</a>
             <div class="section-title">Account</div>
             <a href="/profile" class="${active === 'profile' ? 'active' : ''}">👤 Profile</a>
             <a href="javascript:void(0)" onclick="App.logout()">🚪 Logout</a>
@@ -614,6 +616,126 @@ const Views = (() => {
         </div>`;
     }
 
+    /* ---------- LEADERBOARD ---------- */
+    function leaderboard(data) {
+        const lb = data.lb || {};
+        const me = data.me || {};
+        const period = data.period || 'daily';
+        const rows = Array.isArray(lb.data) ? lb.data : [];
+        const meta = lb.meta || {};
+        const pos = me.position || null;
+        const optedIn = !!me.leaderboard_opt_in;
+        const user = API.user() || {};
+        const timezone = meta.timezone || 'Asia/Dhaka';
+
+        const tabs = [
+            ['daily', 'Daily'],
+            ['weekly', 'Weekly'],
+            ['monthly', 'Monthly'],
+            ['overall', 'All Time'],
+        ];
+        const periodLabels = { daily: 'today', weekly: 'this week', monthly: 'this month', overall: 'overall' };
+
+        function rankBadge(rank) {
+            if (rank === 1) return '<span class="lb-medal">🥇</span>';
+            if (rank === 2) return '<span class="lb-medal">🥈</span>';
+            if (rank === 3) return '<span class="lb-medal">🥉</span>';
+            return '<span class="lb-rank">#' + num(rank) + '</span>';
+        }
+
+        function avatar(name, url) {
+            const initial = esc((name || '?').charAt(0).toUpperCase());
+            return url
+                ? `<img class="lb-avatar" src="${esc(url)}" alt="">`
+                : `<span class="lb-avatar lb-avatar-initial">${initial}</span>`;
+        }
+
+        const positionCard = !optedIn ? `
+            <div class="card lb-join">
+                <div>
+                    <h3 style="margin:0 0 4px;font-size:1rem">You are not on the board yet</h3>
+                    <p class="text-muted" style="margin:0">Join to show your name, avatar, and best test scores to other students. You can leave at any time.</p>
+                </div>
+                <button class="btn btn-primary" onclick="App.toggleLeaderboardOptIn(true)">Join Leaderboard</button>
+            </div>` : `
+            <div class="card lb-me">
+                <div class="lb-me-rank">${pos && pos.rank ? rankBadge(pos.rank) : '<span class="lb-medal lb-medal-none">#–</span>'}</div>
+                <div class="lb-me-info">
+                    <div class="lb-me-label">Your position · ${esc(periodLabels[period] || period)}</div>
+                    <div class="lb-me-stats">
+                        <span><strong>${pos && pos.rank ? '#' + num(pos.rank) : 'Unranked'}</strong></span>
+                        <span>${num(pos ? pos.score : 0).toFixed(1)} pts</span>
+                        <span>${num(pos ? pos.eligible_test_count : 0)} test${num(pos ? pos.eligible_test_count : 0) === 1 ? '' : 's'}</span>
+                    </div>
+                    <p class="text-muted" style="margin:4px 0 0;font-size:.82rem">${pos && pos.rank
+                        ? 'Ranked from your best score on each completed test ' + esc(periodLabels[period] || period) + '.'
+                        : 'Complete a test ' + esc(periodLabels[period] || period) + ' to appear on the board.'}</p>
+                </div>
+                <button class="btn btn-ghost btn-sm" onclick="App.toggleLeaderboardOptIn(false)">Leave</button>
+            </div>`;
+
+        const standings = rows.length ? `
+            <div class="card" style="padding:0">
+                <div class="table-wrapper">
+                    <table class="table lb-table">
+                        <thead>
+                            <tr>
+                                <th style="width:90px">Rank</th>
+                                <th>Student</th>
+                                <th>Score</th>
+                                <th>Tests Completed</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${rows.map(r => {
+                                const rank = num(r.rank);
+                                const isMe = !!r.display_name && !!user.name && r.display_name === user.name;
+                                return `
+                            <tr class="${isMe ? 'lb-row-me' : ''}">
+                                <td>${rankBadge(rank)}</td>
+                                <td>
+                                    <div class="lb-student">
+                                        ${avatar(r.display_name, r.avatar_url)}
+                                        <span>${esc(r.display_name || 'Student')}${isMe ? ' <span class="badge badge-info">You</span>' : ''}</span>
+                                    </div>
+                                </td>
+                                <td><strong>${num(r.score).toFixed(1)}</strong> <span class="text-muted">pts</span></td>
+                                <td>${num(r.eligible_test_count)}</td>
+                            </tr>`; }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>` : `
+            <div class="card empty-state">
+                <div class="icon">🏆</div>
+                <h3>No ranked students yet</h3>
+                <p>Complete a model test and join the leaderboard to be the first name here</p>
+                <a href="/tests" class="btn btn-primary mt-2">Browse Tests</a>
+            </div>`;
+
+        return `
+        ${header('leaderboard')}
+        <div class="layout">
+            ${sidebar('leaderboard')}
+            <main class="main">
+                <div class="lb-hero">
+                    <h1 style="font-size:1.6rem;font-weight:800;margin-bottom:4px">🏆 Leaderboard</h1>
+                    <p class="text-muted mb-3">Top students by best score per test · rankings reset at midnight (${esc(timezone)})</p>
+                </div>
+
+                <div class="lb-tabs">
+                    ${tabs.map(([key, label]) => `
+                        <a class="lb-tab ${period === key ? 'active' : ''}" href="/leaderboard?period=${key}">${label}</a>`).join('')}
+                </div>
+
+                ${positionCard}
+                ${standings}
+
+                ${rows.length ? `<p class="text-muted lb-foot">Showing ${rows.length} of ${num(meta.total)} ranked student${num(meta.total) === 1 ? '' : 's'}</p>` : ''}
+            </main>
+        </div>`;
+    }
+
     /* ---------- PROFILE ---------- */
     function profile(data) {
         const u = data.user || API.user() || {};
@@ -705,5 +827,5 @@ const Views = (() => {
         </div>`;
     }
 
-    return { header, sidebar, login, register, forgot, dashboard, testsList, examHeader, examBody, questionView, result, solution, solutionItem, history, profile, esc };
+    return { header, sidebar, login, register, forgot, dashboard, testsList, examHeader, examBody, questionView, result, solution, solutionItem, history, leaderboard, profile, esc };
 })();

@@ -530,6 +530,42 @@ input[type="file"] { display: none; }
     border: 3px solid var(--surface);
 }
 
+/* ---- Leaderboard ---- */
+.lb-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.lb-tab {
+    padding: 8px 18px; border-radius: 999px; font-size: .88rem; font-weight: 600;
+    background: var(--surface); color: var(--text-muted);
+    border: 1px solid var(--border); transition: var(--transition);
+}
+.lb-tab:hover { border-color: var(--primary); color: var(--primary); }
+.lb-tab.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+
+.lb-join { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.lb-me { display: flex; align-items: center; gap: 18px; }
+.lb-me-rank { min-width: 74px; text-align: center; }
+.lb-medal { font-size: 1.7rem; font-weight: 800; line-height: 1; }
+.lb-medal-none { color: var(--text-light); font-weight: 700; }
+.lb-me-info { flex: 1; min-width: 0; }
+.lb-me-label {
+    font-size: .72rem; font-weight: 700; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px;
+}
+.lb-me-stats { display: flex; flex-wrap: wrap; gap: 14px; font-size: .95rem; align-items: center; }
+.lb-rank {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 40px; font-weight: 700; color: var(--text-muted);
+}
+.lb-student { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.lb-avatar {
+    width: 34px; height: 34px; border-radius: 50%; object-fit: cover; flex-shrink: 0;
+}
+.lb-avatar-initial {
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--primary-light); color: var(--primary); font-weight: 700;
+}
+.lb-row-me td { background: var(--primary-light); }
+.lb-foot { font-size: .82rem; margin-top: 10px; }
+
 /* ---- Responsive ---- */
 @media (max-width: 1024px) {
     .feature-grid { grid-template-columns: repeat(2, 1fr); }
@@ -557,4 +593,6 @@ input[type="file"] { display: none; }
     .footer-links { justify-content: center; }
     .feature-grid { grid-template-columns: 1fr; }
     .subject-grid { grid-template-columns: repeat(2, 1fr); }
+    .lb-join { flex-direction: column; align-items: flex-start; }
+    .lb-me { flex-wrap: wrap; gap: 12px; }
 }
