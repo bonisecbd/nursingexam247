@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\AdminCouponController;
 use App\Http\Controllers\Api\AdminDashboardController;
 use App\Http\Controllers\Api\AdminExamController;
 use App\Http\Controllers\Api\AdminQuestionController;
@@ -7,15 +8,19 @@ use App\Http\Controllers\Api\AdminResultController;
 use App\Http\Controllers\Api\AdminSubjectController;
 use App\Http\Controllers\Api\AdminUserController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\CouponController;
 use App\Http\Controllers\Api\ExamAttemptController;
 use App\Http\Controllers\Api\GamificationController;
 use App\Http\Controllers\Api\LeaderboardController;
 use App\Http\Controllers\Api\ModelTestController;
+use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\ReferralController;
 use App\Http\Controllers\Api\ResultController;
 use App\Http\Controllers\Api\SolutionController;
 use App\Http\Controllers\Api\SubjectController;
+use App\Http\Controllers\Api\SubscriptionController;
+use App\Http\Controllers\Api\WalletController;
 use App\Http\Middleware\AuthenticateApiToken;
 use Illuminate\Support\Facades\Route;
 
@@ -58,6 +63,21 @@ Route::get('/', function () {
             'attempt_history' => 'GET /api/attempts',
             'results' => 'GET /api/results/{attempt}',
             'solutions' => 'GET /api/results/{attempt}/solutions',
+            'validate_coupon' => 'POST /api/coupons/validate',
+            'wallet' => 'GET /api/wallet',
+            'wallet_transactions' => 'GET /api/wallet/transactions',
+            'wallet_topup' => 'POST /api/wallet/topup',
+            'wallet_spend' => 'POST /api/wallet/spend',
+            'subscription_packages' => 'GET /api/subscription-packages',
+            'my_subscriptions' => 'GET /api/subscriptions/me',
+            'subscription_checkout' => 'POST /api/subscriptions/checkout',
+            'test_access' => 'GET /api/tests/{test}/access',
+            'payment_checkout' => 'POST /api/payments/checkout',
+            'payment' => 'GET /api/payments/{payment}',
+            'payment_verify' => 'POST /api/payments/{payment}/verify',
+            'admin_coupons' => 'GET|POST /api/admin/coupons',
+            'admin_coupon_details' => 'PATCH /api/admin/coupons/{coupon}',
+            'admin_coupon_disable' => 'POST /api/admin/coupons/{coupon}/disable',
         ],
     ]);
 });
@@ -127,4 +147,61 @@ Route::middleware(AuthenticateApiToken::class)->prefix('admin')->group(function 
     Route::get('/results', [AdminResultController::class, 'index']);
     Route::get('/gamification/rules', [GamificationController::class, 'adminRules']);
     Route::patch('/gamification/rules', [GamificationController::class, 'updateAdminRules']);
+});
+
+// ---------------------------------------------------------------------------
+// Coupon Module (docs/MODULES.md section 12)
+// Student-facing validation/quote. Management lives under /api/admin/coupons
+// below; authorization for admin operations is enforced inside the controller.
+// ---------------------------------------------------------------------------
+Route::middleware(AuthenticateApiToken::class)->group(function (): void {
+    Route::post('/coupons/validate', [CouponController::class, 'validate']);
+});
+
+// ---------------------------------------------------------------------------
+// Wallet Module (docs/MODULES.md section 13)
+// Balances and ledger entries are server-derived; clients never send amounts.
+// ---------------------------------------------------------------------------
+Route::middleware(AuthenticateApiToken::class)->group(function (): void {
+    Route::get('/wallet', [WalletController::class, 'show']);
+    Route::get('/wallet/transactions', [WalletController::class, 'transactions']);
+    Route::get('/wallet/transactions/{transaction}', [WalletController::class, 'transaction']);
+    Route::post('/wallet/topup', [WalletController::class, 'topup']);
+    Route::post('/wallet/spend', [WalletController::class, 'spend']);
+});
+
+// ---------------------------------------------------------------------------
+// Subscription/Premium Module (docs/MODULES.md section 14)
+// ---------------------------------------------------------------------------
+Route::get('/subscription-packages', [SubscriptionController::class, 'packages']);
+
+Route::middleware(AuthenticateApiToken::class)->group(function (): void {
+    Route::get('/subscriptions/me', [SubscriptionController::class, 'me']);
+    Route::post('/subscriptions/checkout', [SubscriptionController::class, 'checkout']);
+    Route::get('/tests/{test}/access', [SubscriptionController::class, 'testAccess']);
+});
+
+// ---------------------------------------------------------------------------
+// Payment Module (docs/MODULES.md section 15)
+// The callback route is intentionally public: it authenticates with an HMAC
+// signature, not a student bearer token. External gateway integration is NOT
+// verified end to end in this environment.
+// ---------------------------------------------------------------------------
+Route::post('/payments/callback/{provider}', [PaymentController::class, 'callback']);
+
+Route::middleware(AuthenticateApiToken::class)->group(function (): void {
+    Route::post('/payments/checkout', [PaymentController::class, 'checkout']);
+    Route::get('/payments/{payment}', [PaymentController::class, 'show']);
+    Route::post('/payments/{payment}/verify', [PaymentController::class, 'verify']);
+});
+
+// ---------------------------------------------------------------------------
+// Admin: Coupon Module management (docs/MODULES.md section 12).
+// The controller requires the `admin` role, matching the other admin routes.
+// ---------------------------------------------------------------------------
+Route::middleware(AuthenticateApiToken::class)->prefix('admin')->group(function (): void {
+    Route::get('/coupons', [AdminCouponController::class, 'index']);
+    Route::post('/coupons', [AdminCouponController::class, 'store']);
+    Route::patch('/coupons/{coupon}', [AdminCouponController::class, 'update']);
+    Route::post('/coupons/{coupon}/disable', [AdminCouponController::class, 'disable']);
 });
