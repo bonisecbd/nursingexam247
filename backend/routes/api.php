@@ -1,6 +1,10 @@
 <?php
 
 use App\Http\Controllers\Api\AdminDashboardController;
+use App\Http\Controllers\Api\AdminExamController;
+use App\Http\Controllers\Api\AdminQuestionController;
+use App\Http\Controllers\Api\AdminResultController;
+use App\Http\Controllers\Api\AdminSubjectController;
 use App\Http\Controllers\Api\AdminUserController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ExamAttemptController;
@@ -27,7 +31,17 @@ Route::get('/', function () {
             'admin_users' => 'GET /api/admin/users',
             'admin_user_details' => 'GET /api/admin/users/{user}',
             'admin_user_status' => 'PATCH /api/admin/users/{user}/status',
-            'admin_tests' => 'POST /api/admin/tests',
+            'admin_subjects' => 'GET|POST /api/admin/subjects',
+            'admin_subject_details' => 'PATCH /api/admin/subjects/{subject}',
+            'admin_questions' => 'GET|POST /api/admin/questions',
+            'admin_question_details' => 'PATCH /api/admin/questions/{question}',
+            'admin_tests' => 'GET|POST /api/admin/tests',
+            'admin_test_details' => 'GET|PATCH /api/admin/tests/{test}',
+            'admin_test_questions' => 'PUT /api/admin/tests/{test}/questions',
+            'admin_test_publish' => 'POST /api/admin/tests/{test}/publish',
+            'admin_exams' => 'GET /api/admin/exams',
+            'admin_exam_details' => 'GET /api/admin/exams/{attempt}',
+            'admin_results' => 'GET /api/admin/results',
             'attempts' => 'POST /api/attempts',
             'attempt_history' => 'GET /api/attempts',
             'results' => 'GET /api/results/{attempt}',
@@ -76,8 +90,19 @@ Route::middleware(AuthenticateApiToken::class)->prefix('admin')->group(function 
     Route::get('/users', [AdminUserController::class, 'index']);
     Route::get('/users/{user}', [AdminUserController::class, 'show']);
     Route::patch('/users/{user}/status', [AdminUserController::class, 'updateStatus']);
+    Route::get('/subjects', [AdminSubjectController::class, 'index']);
+    Route::post('/subjects', [AdminSubjectController::class, 'store']);
+    Route::patch('/subjects/{subject}', [AdminSubjectController::class, 'update']);
+    Route::get('/questions', [AdminQuestionController::class, 'index']);
+    Route::post('/questions', [AdminQuestionController::class, 'store']);
+    Route::patch('/questions/{question}', [AdminQuestionController::class, 'update']);
+    Route::get('/tests', [ModelTestController::class, 'adminIndex']);
     Route::post('/tests', [ModelTestController::class, 'store']);
+    Route::get('/tests/{test}', [ModelTestController::class, 'adminShow']);
     Route::patch('/tests/{test}', [ModelTestController::class, 'update']);
     Route::put('/tests/{test}/questions', [ModelTestController::class, 'replaceQuestions']);
     Route::post('/tests/{test}/publish', [ModelTestController::class, 'publish']);
+    Route::get('/exams', [AdminExamController::class, 'index']);
+    Route::get('/exams/{attempt}', [AdminExamController::class, 'show']);
+    Route::get('/results', [AdminResultController::class, 'index']);
 });

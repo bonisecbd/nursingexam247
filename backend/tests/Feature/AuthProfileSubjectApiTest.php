@@ -7,8 +7,10 @@ use App\Models\Subject;
 use App\Models\User;
 use App\Notifications\PasswordResetOtp;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class AuthProfileSubjectApiTest extends TestCase
@@ -128,6 +130,12 @@ class AuthProfileSubjectApiTest extends TestCase
             ->assertJsonPath('user.phone', '+8801700000000')
             ->assertJsonPath('user.date_of_birth', '2000-01-01');
 
+        $this->withToken('profile-token')->getJson('/api/profile')
+            ->assertOk()
+            ->assertJsonPath('user.name', 'Rafi Ahmed')
+            ->assertJsonPath('user.gender', 'prefer_not_to_say')
+            ->assertJsonPath('user.address', 'Dhaka');
+
         Subject::query()->create(['name' => 'Nursing', 'code' => 'NUR']);
         Subject::query()->create(['name' => 'General Knowledge', 'code' => 'GK']);
         Subject::query()->create(['name' => 'Hidden Subject', 'code' => 'HID', 'is_active' => false]);
@@ -137,5 +145,58 @@ class AuthProfileSubjectApiTest extends TestCase
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.code', 'NUR');
         $this->getJson('/api/subjects/'.Subject::query()->where('code', 'NUR')->value('id'))->assertOk();
+    }
+
+    public function test_user_can_upload_and_replace_a_profile_photo(): void
+    {
+        Storage::fake('public');
+        $user = User::factory()->create();
+        $user->apiTokens()->create([
+            'name' => 'API token',
+            'token' => hash('sha256', 'photo-token'),
+            'expires_at' => now()->addDays(30),
+        ]);
+
+        $firstUpload = $this->withToken('photo-token')->post('/api/profile/photo', [
+            'photo' => UploadedFile::fake()->createWithContent(
+                'first.png',
+                base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/n6sAAAAASUVORK5CYII='),
+            )->mimeType('image/png'),
+        ], ['Accept' => 'application/json'])->assertOk()
+            ->assertJsonPath('message', 'Profile photo updated successfully.');
+
+        $firstPath = $user->fresh()->avatar_path;
+        Storage::disk('public')->assertExists($firstPath);
+        $this->assertStringContainsString('/storage/'.$firstPath, $firstUpload->json('user.avatar_url'));
+
+        $this->withToken('photo-token')->post('/api/profile/photo', [
+            'photo' => UploadedFile::fake()->createWithContent(
+                'second.png',
+                base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/n6sAAAAASUVORK5CYII='),
+            )->mimeType('image/png'),
+        ], ['Accept' => 'application/json'])->assertOk();
+
+        $this->assertNotSame($firstPath, $user->fresh()->avatar_path);
+        Storage::disk('public')->assertMissing($firstPath);
+        Storage::disk('public')->assertExists($user->fresh()->avatar_path);
+    }
+
+    public function test_profile_photo_upload_validates_type_and_requires_authentication(): void
+    {
+        $this->post('/api/profile/photo', [
+            'photo' => UploadedFile::fake()->create('document.pdf', 20, 'application/pdf'),
+        ], ['Accept' => 'application/json'])->assertUnauthorized();
+
+        $user = User::factory()->create();
+        $user->apiTokens()->create([
+            'name' => 'API token',
+            'token' => hash('sha256', 'invalid-photo-token'),
+            'expires_at' => now()->addDays(30),
+        ]);
+
+        $this->withToken('invalid-photo-token')->post('/api/profile/photo', [
+            'photo' => UploadedFile::fake()->create('document.pdf', 20, 'application/pdf'),
+        ], ['Accept' => 'application/json'])->assertUnprocessable()
+            ->assertJsonValidationErrors('photo');
     }
 }

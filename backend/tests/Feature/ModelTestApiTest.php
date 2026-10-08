@@ -67,6 +67,40 @@ class ModelTestApiTest extends TestCase
         ])->assertForbidden();
     }
 
+    public function test_staff_can_list_and_inspect_drafts_while_students_cannot_access_admin_tests(): void
+    {
+        [, $adminToken] = $this->createUserWithToken('admin');
+        [, $studentToken] = $this->createUserWithToken('student');
+        $subject = Subject::query()->create(['name' => 'Nursing', 'code' => 'NUR']);
+        $question = $this->createQuestions($subject, 1)->first();
+        $draft = $this->createDraftTest($adminToken, $subject, [$question->id]);
+        $published = $this->createDraftTest($adminToken, $subject, [$question->id], [
+            'title' => 'Published Nursing Test',
+        ]);
+
+        $this->withToken($adminToken)->postJson('/api/admin/tests/'.$published->id.'/publish')->assertOk();
+
+        $this->withToken($adminToken)->getJson('/api/admin/tests?status=all&search=&per_page=15&page=1')
+            ->assertOk()
+            ->assertJsonCount(2, 'data');
+
+        $this->withToken($adminToken)->getJson('/api/admin/tests?status=draft&search=Nursing')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $draft->id)
+            ->assertJsonPath('data.0.assigned_question_count', 1)
+            ->assertJsonPath('meta.draft', 1)
+            ->assertJsonPath('meta.published', 1);
+
+        $this->withToken($adminToken)->getJson('/api/admin/tests/'.$draft->id)
+            ->assertOk()
+            ->assertJsonPath('test.questions.0.id', $question->id)
+            ->assertJsonMissingPath('test.questions.0.correct_option');
+
+        $this->withToken($studentToken)->getJson('/api/admin/tests')->assertForbidden();
+        $this->withToken($studentToken)->getJson('/api/admin/tests/'.$draft->id)->assertForbidden();
+    }
+
     public function test_publishing_requires_the_exact_number_of_active_questions_from_the_selected_subject(): void
     {
         [, $adminToken] = $this->createUserWithToken('editor');

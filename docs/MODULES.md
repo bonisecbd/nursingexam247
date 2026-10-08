@@ -17,17 +17,22 @@ Common API conventions:
 - Never trust a client-supplied score, correct answer, price, discount amount, payment status, wallet balance, XP total, or admin flag. Calculate/verify these on the server.
 - Financial amounts use integer minor units (poisha for BDT) or an exact fixed-precision decimal; never use binary floating point for money.
 
+## Subject Catalogue
+
+**Status: Implemented.** Students can list/search active subjects. Admins and editors can list all subjects, create and update subject metadata, and activate/deactivate catalogue entries using the protected `/api/admin/subjects` endpoints. Subject references are retained; deletion is not supported. See [API.md](./API.md#subjects).
+
 ## 05. Model Test Module
 
 **Status: Implemented.** The API provides public paginated list and free published-test detail endpoints, plus protected draft create/update, ordered question replacement, and publish endpoints. Premium question detail is denied until subscription entitlements are implemented. `admin` and `editor` roles may manage tests; published tests are immutable. See [API.md](./API.md#tests) and `backend/tests/Feature/ModelTestApiTest.php` for the live contract and coverage.
 
 **Purpose:** admins/authors create a named exam definition with a fixed question count, duration, marks, and selected questions. A model test is the reusable definition; an attempt is one student's sitting.
 
-Proposed endpoints:
+Implemented endpoints:
 
 - `GET /api/tests?status=published&page=1&per_page=15` — list tests available to the current student; never expose draft tests.
 - `GET /api/tests/{test}` — return metadata and student-safe question/options data, never `correct_option` or answer explanations.
-- `POST /api/admin/tests` — create a draft. Admin/authorized content manager only.
+- `GET /api/admin/tests?status=all&page=1&per_page=15` and `GET /api/admin/tests/{test}` — list and inspect tests for admins/editors; assigned correct answers are omitted.
+- `POST /api/admin/tests` — create a draft. Admin/editor only.
 - `PATCH /api/admin/tests/{test}` — edit a draft or other fields permitted by policy.
 - `POST /api/admin/tests/{test}/publish` — validate and publish.
 - `PUT /api/admin/tests/{test}/questions` — replace the ordered question assignment on a draft.
@@ -85,6 +90,8 @@ Rules:
 
 Logical data: `attempts` (user, test, status, started/deadline/finished timestamps, final score fields) and `attempt_answers` (unique attempt/sequence, nullable source question foreign key, snapshotted question/options/correct answer/explanation/points, nullable selected option, answer timestamps). See [DATABASE.md](./DATABASE.md) for the base entities.
 
+**Admin monitoring: Partially implemented.** Admins and editors can list/filter/paginate student exam attempts and inspect safe summary/timing/progress fields. The admin view does not reveal selected answers, answer keys, explanations, or student contact details. Suspicious-attempt detection is intentionally not implemented until detection rules are defined.
+
 ## 07. Result Module
 
 **Status: Implemented.** `GET /api/results/{attempt}/summary`, `GET /api/results/{attempt}`, and `GET /api/attempts?test_id=...` return only the authenticated user's finalized results/history. In-progress results return `409`; a different user's attempt returns `404`. Result responses contain aggregate data only; use the Solution API for answer review. See [API.md](./API.md#result-api) and `backend/tests/Feature/ResultApiTest.php`.
@@ -107,6 +114,8 @@ Rules:
 - Calculate and persist once on submission/expiry. Never accept counts or final score from the browser.
 - Do not reveal a result to a different user. If result release is delayed, reveal only the allowed summary until the configured release time.
 - Repeated submit/result requests must return the same stored values.
+
+**Admin reporting: Partially implemented.** Admins and editors can browse finalized student results with status, student/test search, subject/test filters, and pagination. Aggregate analytics report completed attempt count, average percentage, pass rate, and top subject/test performance. In-progress attempts and answer-level data are excluded. Student-level trend reports remain planned.
 
 ## 08. Solution Module
 
@@ -346,14 +355,13 @@ Rules:
 
 ## 19. Admin Module
 
-**Status: Partially implemented.** `GET /api/admin/dashboard` returns role-protected aggregate metrics; model-test draft create/update/question-assignment/publish endpoints are available to admins and editors. Student user management is implemented for admins: paginated search/filter, student profile and recent exam activity, and account activation/blocking with session revocation. The frontend console is at `/admin/dashboard`. Question CRUD/import, granular permissions, audit logs, and other operational workflows are still planned. See [API.md](./API.md#admin-dashboard-api).
+**Status: Partially implemented.** `GET /api/admin/dashboard` returns role-protected aggregate metrics; admins and editors can list/inspect test drafts, create/update drafts, assign questions, and publish tests. The admin Model Tests screen supports status/search filters, paginated test listing, question assignment, and publishing. Student user management is implemented for admins: paginated search/filter, student profile and recent exam activity, and account activation/blocking with session revocation. Subject catalogue management and question create/list/update/activation are implemented for admins and editors. Questions assigned to published tests are locked to preserve their content. The frontend console is at `/admin/dashboard`. Bulk question import, granular permissions, audit logs, and other operational workflows are still planned. See [API.md](./API.md#admin-dashboard-api).
 
 **Purpose:** provide role-protected content and operations management, audit trails, and safe operational summaries.
 
 Remaining proposed endpoint families (all `/api/admin/...`):
 
-- `GET|POST|PATCH|DELETE /questions` — question-bank CRUD, validation, activation, import/export under policy.
-- `GET|POST|PATCH /tests` and test publish/archive operations — model-test management.
+- Bulk question import/export and question-report operations — validate and audit all imported content.
 - `GET /payments` and `POST /payments/{payment}/refund` — inspect verified payments and request an authorized refund; gateway execution and audit required.
 - `GET|POST|PATCH /coupons` and disable operation — coupon lifecycle.
 - `GET /referrals` and audited adjustment/review operations — referral investigation and resolution.

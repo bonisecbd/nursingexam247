@@ -6,11 +6,12 @@ const TOKEN_KEY = 'nurseexam247_token'
 const COPYRIGHT_YEAR = new Date().getFullYear()
 
 async function apiRequest(path, { token, ...options } = {}) {
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
       Accept: 'application/json',
-      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(options.body && !isFormData ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
@@ -365,20 +366,39 @@ const adminMenu = [
       { id: 'users-details', label: 'Student Details', page: 'users-details' },
       { id: 'users-activity', label: 'User Activity', page: 'users-activity' },
     ] },
-    { id: 'question-bank', label: 'Question Bank', icon: 'question', soon: true, children: ['All Questions', 'Add Question', 'Bulk Import', 'Categories', 'Subjects', 'Difficulty Level', 'Question Reports'] },
+    { id: 'question-bank', label: 'Question Bank', icon: 'question', children: [
+      { id: 'question-bank-all', label: 'All Questions', page: 'question-bank' },
+      { id: 'question-bank-create', label: 'Add Question', action: 'create-question' },
+      { id: 'question-bank-import', label: 'Bulk Import', soon: true },
+      { id: 'question-bank-categories', label: 'Categories', soon: true },
+      { id: 'question-bank-subjects', label: 'Subjects', page: 'subjects' },
+      { id: 'question-bank-difficulty', label: 'Difficulty Level', page: 'question-bank' },
+      { id: 'question-bank-reports', label: 'Question Reports', soon: true },
+    ] },
     { id: 'model-tests', label: 'Model Tests', icon: 'book', children: [
       { id: 'model-tests-all', label: 'All Tests', page: 'model-tests' },
       { id: 'model-tests-create', label: 'Create Test', action: 'create-test' },
-      { id: 'model-tests-drafts', label: 'Draft Tests', soon: true },
+      { id: 'model-tests-drafts', label: 'Draft Tests', page: 'model-tests-drafts' },
       { id: 'model-tests-published', label: 'Published Tests', page: 'model-tests' },
       { id: 'model-tests-scheduled', label: 'Scheduled Tests', soon: true },
       { id: 'model-tests-categories', label: 'Test Categories', soon: true },
     ] },
-    { id: 'subjects', label: 'Subjects', icon: 'book', soon: true },
+    { id: 'subjects', label: 'Subjects', icon: 'book', page: 'subjects' },
   ] },
   { heading: 'EXAMS & LEARNING', items: [
-    { id: 'exams', label: 'Exams', icon: 'clock', soon: true, children: ['Live Exams', 'Completed Exams', 'Exam Attempts', 'Suspicious Attempts'] },
-    { id: 'results', label: 'Results & Analytics', icon: 'chart', soon: true, children: ['All Results', 'Student Performance', 'Subject Performance', 'Test Performance', 'Analytics'] },
+    { id: 'exams', label: 'Exams', icon: 'clock', page: 'exams-attempts', children: [
+      { id: 'exams-live', label: 'Live Exams', page: 'exams-live' },
+      { id: 'exams-completed', label: 'Completed Exams', page: 'exams-completed' },
+      { id: 'exams-attempts', label: 'Exam Attempts', page: 'exams-attempts' },
+      { id: 'exams-suspicious', label: 'Suspicious Attempts', soon: true },
+    ] },
+    { id: 'results', label: 'Results & Analytics', icon: 'chart', page: 'results-all', children: [
+      { id: 'results-all', label: 'All Results', page: 'results-all' },
+      { id: 'results-students', label: 'Student Performance', soon: true },
+      { id: 'results-subjects', label: 'Subject Performance', soon: true },
+      { id: 'results-tests', label: 'Test Performance', soon: true },
+      { id: 'results-analytics', label: 'Analytics', page: 'results-analytics' },
+    ] },
     { id: 'leaderboard', label: 'Leaderboard', icon: 'trophy', soon: true, children: ['Daily', 'Weekly', 'Monthly', 'All Time'] },
     { id: 'gamification', label: 'Gamification', icon: 'spark', soon: true, children: ['Points / XP', 'Levels', 'Badges', 'Achievements', 'Streaks'] },
     { id: 'challenges', label: 'Challenges', icon: 'star', soon: true, children: ['Daily Challenge', 'Weekly Challenge', 'Competition'] },
@@ -561,6 +581,823 @@ function AdminUsers({ token, page, onNotice }) {
   )
 }
 
+function AdminSubjects({ token, onNotice }) {
+  const [result, setResult] = useState(null)
+  const [searchText, setSearchText] = useState('')
+  const [search, setSearch] = useState('')
+  const [status, setStatus] = useState('all')
+  const [reloadKey, setReloadKey] = useState(0)
+  const [formSubject, setFormSubject] = useState(undefined)
+  const [formBusy, setFormBusy] = useState(false)
+  const [formError, setFormError] = useState('')
+  const requestKey = `${search}:${status}:${reloadKey}`
+
+  useEffect(() => {
+    let active = true
+    const params = new URLSearchParams({ per_page: '100', status })
+    if (search) params.set('search', search)
+    apiRequest(`/admin/subjects?${params.toString()}`, { token })
+      .then((data) => {
+        if (active) setResult({ key: requestKey, data })
+      })
+      .catch((requestError) => {
+        if (active) setResult({ key: requestKey, error: requestError.message })
+      })
+
+    return () => { active = false }
+  }, [requestKey, search, status, token])
+
+  const currentResult = result?.key === requestKey ? result : null
+  const subjects = currentResult?.data?.data || []
+  const meta = currentResult?.data?.meta
+  const loading = !currentResult
+  const loadError = currentResult?.error || ''
+
+  function submitSearch(event) {
+    event.preventDefault()
+    setSearch(searchText.trim())
+  }
+
+  async function saveSubject(event) {
+    event.preventDefault()
+    setFormError('')
+    setFormBusy(true)
+    const fields = new FormData(event.currentTarget)
+    const payload = {
+      name: fields.get('name').trim(),
+      code: fields.get('code').trim().toUpperCase(),
+      description: fields.get('description').trim() || null,
+      is_active: fields.get('is_active') === 'on',
+    }
+
+    try {
+      const editing = formSubject !== null
+      const response = await apiRequest(
+        editing ? `/admin/subjects/${formSubject.id}` : '/admin/subjects',
+        { method: editing ? 'PATCH' : 'POST', token, body: JSON.stringify(payload) },
+      )
+      setFormSubject(undefined)
+      onNotice(response.message)
+      setReloadKey((value) => value + 1)
+    } catch (requestError) {
+      setFormError(requestError.message)
+    } finally {
+      setFormBusy(false)
+    }
+  }
+
+  const number = (value) => Number(value || 0).toLocaleString()
+
+  return (
+    <section className="admin-module-page admin-subjects-page">
+      <div className="admin-page-heading">
+        <div><span className="eyebrow">LEARNING CATALOGUE</span><h1>Subjects</h1><p>Create and manage the subjects students can browse and take tests in.</p></div>
+        <button className="button button-primary" onClick={() => { setFormError(''); setFormSubject(null) }}><Icon name="arrow" size={17} /> Add subject</button>
+      </div>
+      <div className="admin-module-stats admin-users-stats">
+        <span><b>{meta ? number(meta.total) : '—'}</b> matching subjects</span>
+        <span><b>{meta ? number(meta.active) : '—'}</b> active</span>
+        <span><b>{meta ? number(meta.inactive) : '—'}</b> inactive</span>
+      </div>
+      <section className="admin-panel admin-users-panel">
+        <div className="admin-users-toolbar">
+          <div><span className="eyebrow">SUBJECT DIRECTORY</span><h2>All subjects</h2></div>
+          <div className="admin-subject-tools">
+            <label className="sr-only" htmlFor="admin-subject-status">Filter subjects by status</label>
+            <select id="admin-subject-status" value={status} onChange={(event) => setStatus(event.target.value)}><option value="all">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select>
+            <form className="admin-user-search" onSubmit={submitSearch}>
+              <label className="sr-only" htmlFor="admin-subject-search">Search subjects</label>
+              <input id="admin-subject-search" value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder="Name or code" maxLength={100} />
+              <button className="button button-outline" type="submit"><Icon name="search" size={16} /> Search</button>
+            </form>
+          </div>
+        </div>
+        {loadError && <div className="form-error dashboard-error" role="alert">{loadError}</div>}
+        {loading ? <div className="dashboard-loading">Loading subjects…</div> : subjects.length ? <div className="admin-user-table-wrap"><table className="admin-subject-table">
+          <thead><tr><th>Subject</th><th>Code</th><th>Questions</th><th>Tests</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody>{subjects.map((subject) => <tr key={subject.id}>
+            <td><b>{subject.name}</b><small>{subject.description || 'No description'}</small></td>
+            <td><code>{subject.code}</code></td>
+            <td>{number(subject.questions_count)}</td>
+            <td>{number(subject.tests_count)}</td>
+            <td><span className={`admin-user-status ${subject.is_active ? 'is-active' : 'is-blocked'}`}>{subject.is_active ? 'Active' : 'Inactive'}</span></td>
+            <td><button className="admin-user-view" onClick={() => { setFormError(''); setFormSubject(subject) }}>Edit subject</button></td>
+          </tr>)}</tbody>
+        </table></div> : !loadError ? <div className="admin-users-empty"><Icon name="book" size={22} /><b>No subjects found</b><span>Add a subject or adjust the filters.</span></div> : null}
+      </section>
+      <p className="admin-data-note"><Icon name="info" size={15} /> Inactive subjects are hidden from the student catalogue. Subjects cannot be deleted because existing questions and tests may depend on them.</p>
+      {formSubject !== undefined && <div className="auth-backdrop admin-create-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !formBusy) setFormSubject(undefined) }}>
+        <section className="auth-card admin-create-card admin-subject-form-card" role="dialog" aria-modal="true" aria-labelledby="subject-form-title">
+          <button className="auth-close" onClick={() => setFormSubject(undefined)} aria-label="Close subject form" disabled={formBusy}><Icon name="close" /></button>
+          <div className="auth-eyebrow">SUBJECT MANAGEMENT</div>
+          <h2 id="subject-form-title">{formSubject ? 'Edit subject' : 'Add a subject'}</h2>
+          <p className="auth-intro">Subjects organize questions and practice tests for students.</p>
+          {formError && <div className="form-error" role="alert">{formError}</div>}
+          <form className="auth-form admin-test-form" onSubmit={saveSubject}>
+            <label>Subject name<input name="name" required maxLength={255} defaultValue={formSubject?.name || ''} placeholder="e.g. Nursing" /></label>
+            <label>Subject code<input name="code" required maxLength={20} pattern="[A-Za-z0-9_-]+" defaultValue={formSubject?.code || ''} placeholder="e.g. NUR" /></label>
+            <label>Description (optional)<textarea name="description" maxLength={2000} rows="4" defaultValue={formSubject?.description || ''} placeholder="Briefly describe this subject" /></label>
+            <label className="admin-checkbox-label"><input name="is_active" type="checkbox" defaultChecked={formSubject?.is_active ?? true} /> Available in the student catalogue</label>
+            <button className="button button-primary auth-submit" disabled={formBusy}>{formBusy ? 'Saving subject…' : formSubject ? 'Save changes' : 'Create subject'} {!formBusy && <Icon name="arrow" size={17} />}</button>
+          </form>
+        </section>
+      </div>}
+    </section>
+  )
+}
+
+function AdminQuestionBank({ token, page, onNotice }) {
+  const [result, setResult] = useState(null)
+  const [subjectsResult, setSubjectsResult] = useState(null)
+  const [searchText, setSearchText] = useState('')
+  const [search, setSearch] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [subjectId, setSubjectId] = useState('')
+  const [difficulty, setDifficulty] = useState('')
+  const [status, setStatus] = useState('all')
+  const [reloadKey, setReloadKey] = useState(0)
+  const [editorQuestion, setEditorQuestion] = useState(page === 'question-bank-create' ? null : undefined)
+  const [actionError, setActionError] = useState('')
+  const [updatingId, setUpdatingId] = useState(null)
+  const requestKey = `${search}:${subjectId}:${difficulty}:${status}:${currentPage}:${reloadKey}`
+
+  useEffect(() => {
+    let active = true
+    const params = new URLSearchParams({ per_page: '100', status: 'all' })
+    apiRequest(`/admin/subjects?${params.toString()}`, { token })
+      .then((data) => {
+        if (active) setSubjectsResult({ data: data.data || [] })
+      })
+      .catch((error) => {
+        if (active) setSubjectsResult({ error: error.message })
+      })
+    return () => { active = false }
+  }, [token])
+
+  useEffect(() => {
+    let active = true
+    const params = new URLSearchParams({ per_page: '15', status, page: String(currentPage) })
+    if (search) params.set('search', search)
+    if (subjectId) params.set('subject_id', subjectId)
+    if (difficulty) params.set('difficulty', difficulty)
+    apiRequest(`/admin/questions?${params.toString()}`, { token })
+      .then((data) => {
+        if (active) setResult({ key: requestKey, data })
+      })
+      .catch((error) => {
+        if (active) setResult({ key: requestKey, error: error.message })
+      })
+    return () => { active = false }
+  }, [requestKey, search, subjectId, difficulty, status, currentPage, token])
+
+  const currentResult = result?.key === requestKey ? result : null
+  const questions = currentResult?.data?.data || []
+  const meta = currentResult?.data?.meta
+  const loading = !currentResult
+  const loadError = currentResult?.error || ''
+  const subjects = subjectsResult?.data || []
+  const editorSubjects = subjects.filter((subject) => subject.is_active || subject.id === editorQuestion?.subject?.id)
+
+  function submitSearch(event) {
+    event.preventDefault()
+    setCurrentPage(1)
+    setSearch(searchText.trim())
+  }
+
+  async function saveQuestion(payload) {
+    setActionError('')
+    const editing = editorQuestion !== null
+    try {
+      const result = await apiRequest(
+        editing ? `/admin/questions/${editorQuestion.id}` : '/admin/questions',
+        { method: editing ? 'PATCH' : 'POST', token, body: JSON.stringify(payload) },
+      )
+      setEditorQuestion(undefined)
+      onNotice(result.message)
+      setReloadKey((value) => value + 1)
+    } catch (error) {
+      return error.message
+    }
+    return ''
+  }
+
+  async function toggleQuestion(question) {
+    const nextStatus = !question.is_active
+    if (!window.confirm(`${nextStatus ? 'Activate' : 'Deactivate'} this question?${nextStatus ? '' : ' It will not be available in future tests.'}`)) return
+    setUpdatingId(question.id)
+    setActionError('')
+    try {
+      const response = await apiRequest(`/admin/questions/${question.id}`, {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({ is_active: nextStatus }),
+      })
+      onNotice(response.message)
+      setReloadKey((value) => value + 1)
+    } catch (error) {
+      setActionError(error.message)
+    } finally {
+      setUpdatingId(null)
+    }
+  }
+
+  const number = (value) => Number(value || 0).toLocaleString()
+  const statusLabel = status === 'active' ? 'Active questions' : status === 'inactive' ? 'Inactive questions' : 'All questions'
+
+  return (
+    <section className="admin-module-page admin-question-page">
+      <div className="admin-page-heading">
+        <div><span className="eyebrow">LEARNING CONTENT</span><h1>Question bank</h1><p>Create and maintain subject-based multiple-choice questions used by model tests.</p></div>
+        <button className="button button-primary" onClick={() => setEditorQuestion(null)} disabled={!subjects.length}><Icon name="arrow" size={17} /> Add question</button>
+      </div>
+      <div className="admin-module-stats admin-users-stats">
+        <span><b>{meta ? number(meta.total) : '—'}</b> matching questions</span>
+        <span><b>{meta ? number(meta.active) : '—'}</b> active</span>
+        <span><b>{meta ? number(meta.inactive) : '—'}</b> inactive</span>
+      </div>
+      {subjectsResult?.error && <div className="form-error dashboard-error" role="alert">{subjectsResult.error}</div>}
+      {!subjectsResult?.error && !subjects.length && !subjectsResult && <div className="dashboard-loading">Loading subject list…</div>}
+      <section className="admin-panel admin-users-panel">
+        <div className="admin-users-toolbar">
+          <div><span className="eyebrow">QUESTION DIRECTORY</span><h2>{statusLabel}</h2></div>
+          <div className="admin-question-tools">
+            <label className="sr-only" htmlFor="question-subject-filter">Filter by subject</label>
+            <select id="question-subject-filter" value={subjectId} onChange={(event) => { setCurrentPage(1); setSubjectId(event.target.value) }}><option value="">All subjects</option>{subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}</select>
+            <label className="sr-only" htmlFor="question-difficulty-filter">Filter by difficulty</label>
+            <select id="question-difficulty-filter" value={difficulty} onChange={(event) => { setCurrentPage(1); setDifficulty(event.target.value) }}><option value="">All difficulty</option><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select>
+            <label className="sr-only" htmlFor="question-status-filter">Filter by status</label>
+            <select id="question-status-filter" value={status} onChange={(event) => { setCurrentPage(1); setStatus(event.target.value) }}><option value="all">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select>
+            <form className="admin-user-search" onSubmit={submitSearch}>
+              <label className="sr-only" htmlFor="question-search">Search questions</label>
+              <input id="question-search" value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder="Search question text" maxLength={200} />
+              <button className="button button-outline" type="submit"><Icon name="search" size={16} /> Search</button>
+            </form>
+          </div>
+        </div>
+        {actionError && <div className="form-error dashboard-error" role="alert">{actionError}</div>}
+        {loadError && <div className="form-error dashboard-error" role="alert">{loadError}</div>}
+        {loading ? <div className="dashboard-loading">Loading questions…</div> : questions.length ? <div className="admin-user-table-wrap"><table className="admin-question-table">
+          <thead><tr><th>Question</th><th>Subject</th><th>Difficulty</th><th>Tests</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody>{questions.map((question) => <tr key={question.id}>
+            <td><b>#{question.id} · {question.question_text}</b><small>{question.options.length} options{question.explanation ? ' · Explanation provided' : ''}</small></td>
+            <td>{question.subject?.name || '—'}<small>{question.subject?.code || ''}</small></td>
+            <td><span className={`admin-question-difficulty ${question.difficulty}`}>{question.difficulty}</span></td>
+            <td>{number(question.tests_count)}<small>{number(question.published_tests_count)} published</small></td>
+            <td><span className={`admin-user-status ${question.is_active ? 'is-active' : 'is-blocked'}`}>{question.is_active ? 'Active' : 'Inactive'}</span></td>
+            <td><div className="admin-user-actions"><button className="admin-user-view" onClick={() => setEditorQuestion(question)} disabled={question.published_tests_count > 0} title={question.published_tests_count > 0 ? 'Assigned to published tests; editing would change their content.' : 'Edit question'}>{question.published_tests_count > 0 ? 'Published' : 'Edit'}</button><button className={`admin-user-toggle${question.is_active ? ' is-block' : ''}`} onClick={() => toggleQuestion(question)} disabled={updatingId === question.id || question.published_tests_count > 0}>{updatingId === question.id ? 'Saving…' : question.is_active ? 'Deactivate' : 'Activate'}</button></div></td>
+          </tr>)}</tbody>
+        </table></div> : !loadError ? <div className="admin-users-empty"><Icon name="question" size={22} /><b>No questions found</b><span>Add a question or adjust the filters.</span></div> : null}
+        {meta && meta.last_page > 1 && <div className="admin-users-pagination"><span>Page {meta.current_page} of {meta.last_page} · {number(meta.total)} questions</span><div><button className="button button-outline" onClick={() => setCurrentPage((value) => Math.max(1, value - 1))} disabled={meta.current_page <= 1 || loading}>Previous</button><button className="button button-outline" onClick={() => setCurrentPage((value) => Math.min(meta.last_page, value + 1))} disabled={meta.current_page >= meta.last_page || loading}>Next</button></div></div>}
+      </section>
+      <p className="admin-data-note"><Icon name="shield" size={15} /> Questions assigned to published tests are locked to preserve test content. Create a new question for future tests instead of editing published content.</p>
+      {editorQuestion !== undefined && <AdminQuestionEditor question={editorQuestion} subjects={editorSubjects} onClose={() => setEditorQuestion(undefined)} onSave={saveQuestion} />}
+    </section>
+  )
+}
+
+function AdminQuestionEditor({ question, subjects, onClose, onSave }) {
+  const [options, setOptions] = useState(() => question?.options?.length ? question.options : ['', '', '', ''])
+  const [correctOption, setCorrectOption] = useState(question?.correct_option || 1)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const availableOptions = options.map((text, index) => ({ text: text.trim(), index })).filter((option) => option.text)
+
+  function updateOption(index, value) {
+    setOptions((current) => current.map((option, optionIndex) => optionIndex === index ? value : option))
+  }
+
+  function addOption() {
+    if (options.length < 6) setOptions((current) => [...current, ''])
+  }
+
+  function removeOption(index) {
+    if (options.length <= 2) return
+    const removedIsCorrect = correctOption === index + 1
+    setOptions((current) => current.filter((_, optionIndex) => optionIndex !== index))
+    if (removedIsCorrect) setCorrectOption(1)
+    else if (correctOption > index + 1) setCorrectOption((value) => value - 1)
+  }
+
+  async function submit(event) {
+    event.preventDefault()
+    setError('')
+    const form = new FormData(event.currentTarget)
+    const finalOptions = options.map((option) => option.trim())
+    while (finalOptions.length > 0 && !finalOptions[finalOptions.length - 1]) finalOptions.pop()
+    if (finalOptions.length < 2) {
+      setError('Enter at least two answer options.')
+      return
+    }
+    if (finalOptions.some((option) => !option)) {
+      setError('Fill each option in order or remove the unused option at the end.')
+      return
+    }
+    if (correctOption > finalOptions.length) {
+      setError('Choose a correct answer from the available options.')
+      return
+    }
+    const payload = {
+      subject_id: Number(form.get('subject_id')),
+      question_text: form.get('question_text').trim(),
+      options: finalOptions,
+      correct_option: Number(correctOption),
+      explanation: form.get('explanation').trim() || null,
+      difficulty: form.get('difficulty'),
+      is_active: form.get('is_active') === 'on',
+    }
+    setBusy(true)
+    const saveError = await onSave(payload)
+    if (saveError) {
+      setError(saveError)
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="auth-backdrop admin-create-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose() }}>
+      <section className="auth-card admin-create-card admin-question-editor" role="dialog" aria-modal="true" aria-labelledby="question-editor-title">
+        <button className="auth-close" onClick={onClose} aria-label="Close question form" disabled={busy}><Icon name="close" /></button>
+        <div className="auth-eyebrow">QUESTION BANK</div>
+        <h2 id="question-editor-title">{question ? 'Edit question' : 'Add a question'}</h2>
+        <p className="auth-intro">Answer options are saved in order. Select the correct option for scoring and solutions.</p>
+        {error && <div className="form-error" role="alert">{error}</div>}
+        <form className="auth-form admin-test-form" onSubmit={submit}>
+          <label>Subject<select name="subject_id" required defaultValue={question?.subject?.id || ''}><option value="" disabled>Select a subject</option>{subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}</select></label>
+          <label>Question text<textarea name="question_text" required maxLength={10000} rows="4" defaultValue={question?.question_text || ''} placeholder="Enter the question" /></label>
+          <div className="admin-question-options"><div className="admin-question-options-heading"><b>Answer options</b><button className="admin-text-button" type="button" onClick={addOption} disabled={options.length >= 6}>+ Add option</button></div>{options.map((option, index) => <div className="admin-question-option-row" key={index}><span>{String.fromCharCode(65 + index)}</span><textarea aria-label={`Option ${String.fromCharCode(65 + index)}`} value={option} onChange={(event) => updateOption(index, event.target.value)} maxLength={1000} rows="2" placeholder={`Answer option ${String.fromCharCode(65 + index)}`} /><button type="button" onClick={() => removeOption(index)} disabled={options.length <= 2} aria-label={`Remove option ${String.fromCharCode(65 + index)}`}>×</button></div>)}</div>
+          <div className="admin-form-row">
+            <label>Correct answer<select value={correctOption} onChange={(event) => setCorrectOption(Number(event.target.value))} required>{availableOptions.map((option) => <option key={option.index} value={option.index + 1}>{String.fromCharCode(65 + option.index)} — {option.text.slice(0, 45)}</option>)}</select></label>
+            <label>Difficulty<select name="difficulty" defaultValue={question?.difficulty || 'medium'}><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select></label>
+          </div>
+          <label>Explanation (optional)<textarea name="explanation" maxLength={10000} rows="3" defaultValue={question?.explanation || ''} placeholder="Explain why the correct answer is right" /></label>
+          <label className="admin-checkbox-label"><input name="is_active" type="checkbox" defaultChecked={question?.is_active ?? true} /> Available for future tests</label>
+          <button className="button button-primary auth-submit" type="submit" disabled={busy || !subjects.length}>{busy ? 'Saving question…' : question ? 'Save changes' : 'Create question'} {!busy && <Icon name="arrow" size={17} />}</button>
+        </form>
+      </section>
+    </div>
+  )
+}
+
+function AdminResults({ token, page }) {
+  const [result, setResult] = useState(null)
+  const [subjects, setSubjects] = useState([])
+  const [tests, setTests] = useState([])
+  const [filterError, setFilterError] = useState('')
+  const [searchText, setSearchText] = useState('')
+  const [search, setSearch] = useState('')
+  const [subjectId, setSubjectId] = useState('')
+  const [testId, setTestId] = useState('')
+  const [status, setStatus] = useState('all')
+  const [currentPage, setCurrentPage] = useState(1)
+  const requestKey = `${search}:${subjectId}:${testId}:${status}:${currentPage}`
+
+  useEffect(() => {
+    let active = true
+    Promise.all([
+      apiRequest('/admin/subjects?status=all&per_page=100', { token }),
+      apiRequest('/admin/tests?status=all&per_page=100', { token }),
+    ]).then(([subjectData, testData]) => {
+      if (!active) return
+      setSubjects(subjectData.data || [])
+      setTests(testData.data || [])
+    }).catch((error) => {
+      if (active) setFilterError(error.message)
+    })
+    return () => { active = false }
+  }, [token])
+
+  useEffect(() => {
+    let active = true
+    const params = new URLSearchParams({ status, per_page: '15', page: String(currentPage) })
+    if (search) params.set('search', search)
+    if (subjectId) params.set('subject_id', subjectId)
+    if (testId) params.set('test_id', testId)
+    apiRequest(`/admin/results?${params.toString()}`, { token })
+      .then((data) => {
+        if (active) setResult({ key: requestKey, data })
+      })
+      .catch((error) => {
+        if (active) setResult({ key: requestKey, error: error.message })
+      })
+    return () => { active = false }
+  }, [requestKey, search, subjectId, testId, status, currentPage, token])
+
+  const currentResult = result?.key === requestKey ? result : null
+  const results = currentResult?.data?.data || []
+  const meta = currentResult?.data?.meta
+  const analytics = currentResult?.data?.analytics
+  const loading = !currentResult
+  const error = currentResult?.error || ''
+  const number = (value) => Number(value || 0).toLocaleString()
+  const percent = (value) => value == null ? '—' : `${Number(value).toFixed(1)}%`
+
+  function submitSearch(event) {
+    event.preventDefault()
+    setCurrentPage(1)
+    setSearch(searchText.trim())
+  }
+
+  return (
+    <section className="admin-module-page admin-results-page">
+      <div className="admin-page-heading">
+        <div><span className="eyebrow">RESULTS &amp; ANALYTICS</span><h1>{page === 'results-analytics' ? 'Results analytics' : 'All results'}</h1><p>Review finalized student scores and compare performance across subjects and tests.</p></div>
+      </div>
+      <div className="admin-module-stats admin-users-stats">
+        <span><b>{analytics ? number(analytics.completed_attempts) : '—'}</b> completed attempts</span>
+        <span><b>{analytics ? percent(analytics.average_percentage) : '—'}</b> average score</span>
+        <span><b>{analytics ? percent(analytics.pass_rate) : '—'}</b> overall pass rate</span>
+      </div>
+      <section className="admin-panel admin-results-analytics">
+        <div className="admin-panel-heading"><div><span className="eyebrow">PERFORMANCE SNAPSHOT</span><h2>Subject performance</h2></div></div>
+        {loading ? <div className="dashboard-loading">Calculating result summaries…</div> : analytics?.subjects?.length ? <div className="admin-results-breakdown">
+          <div className="admin-results-breakdown-head"><span>SUBJECT</span><span>ATTEMPTS</span><span>AVERAGE</span><span>PASS RATE</span></div>
+          {analytics.subjects.map((subject) => <div className="admin-results-breakdown-row" key={subject.id}><b>{subject.name}</b><span>{number(subject.attempts)}</span><span>{percent(subject.average_percentage)}</span><span>{percent(subject.pass_rate)}</span></div>)}
+        </div> : !error ? <p className="empty-state">Subject analytics will appear after students finish tests.</p> : null}
+      </section>
+      <section className="admin-panel admin-results-analytics">
+        <div className="admin-panel-heading"><div><span className="eyebrow">TEST PERFORMANCE</span><h2>Most attempted tests</h2></div></div>
+        {loading ? <div className="dashboard-loading">Loading test performance…</div> : analytics?.tests?.length ? <div className="admin-results-breakdown admin-results-test-breakdown">
+          <div className="admin-results-breakdown-head"><span>TEST</span><span>ATTEMPTS</span><span>AVERAGE</span><span>PASS RATE</span></div>
+          {analytics.tests.map((test) => <div className="admin-results-breakdown-row" key={test.id}><span><b>{test.title}</b><small>{test.code}</small></span><span>{number(test.attempts)}</span><span>{percent(test.average_percentage)}</span><span>{percent(test.pass_rate)}</span></div>)}
+        </div> : !error ? <p className="empty-state">Test analytics will appear after students finish tests.</p> : null}
+      </section>
+      <section className="admin-panel admin-users-panel admin-results-directory">
+        <div className="admin-users-toolbar">
+          <div><span className="eyebrow">FINALIZED ATTEMPTS</span><h2>Result directory</h2></div>
+          <div className="admin-question-tools admin-results-tools">
+            <label className="sr-only" htmlFor="admin-result-subject">Filter by subject</label>
+            <select id="admin-result-subject" value={subjectId} onChange={(event) => { setCurrentPage(1); setSubjectId(event.target.value) }}><option value="">All subjects</option>{subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}</select>
+            <label className="sr-only" htmlFor="admin-result-test">Filter by test</label>
+            <select id="admin-result-test" value={testId} onChange={(event) => { setCurrentPage(1); setTestId(event.target.value) }}><option value="">All tests</option>{tests.map((test) => <option key={test.id} value={test.id}>{test.title}</option>)}</select>
+            <label className="sr-only" htmlFor="admin-result-status">Filter by result status</label>
+            <select id="admin-result-status" value={status} onChange={(event) => { setCurrentPage(1); setStatus(event.target.value) }}><option value="all">All results</option><option value="passed">Passed</option><option value="failed">Failed</option><option value="submitted">Submitted</option><option value="expired">Expired</option></select>
+            <form className="admin-user-search" onSubmit={submitSearch}>
+              <label className="sr-only" htmlFor="admin-result-search">Search result directory</label>
+              <input id="admin-result-search" value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder="Student, test title or code" maxLength={100} />
+              <button className="button button-outline" type="submit"><Icon name="search" size={16} /> Search</button>
+            </form>
+          </div>
+        </div>
+        {filterError && <div className="form-error dashboard-error" role="alert">{filterError}</div>}
+        {error && <div className="form-error dashboard-error" role="alert">{error}</div>}
+        {loading ? <div className="dashboard-loading">Loading finalized results…</div> : results.length ? <div className="admin-user-table-wrap">
+          <table className="admin-exam-table admin-result-table">
+            <thead><tr><th>Student</th><th>Test</th><th>Correct / Wrong / Skip</th><th>Score</th><th>Percentage</th><th>Outcome</th><th>Finished</th></tr></thead>
+            <tbody>{results.map((item) => <tr key={item.attempt_id}>
+              <td><b>{item.student?.name || 'Unavailable student'}</b><small>Student #{item.student?.id ?? '—'}</small></td>
+              <td><b>{item.test?.title || 'Unavailable test'}</b><small>{item.test?.subject || '—'} · {item.test?.code || '—'}</small></td>
+              <td>{number(item.correct_count)} / {number(item.wrong_count)} / {number(item.skipped_count)}</td>
+              <td>{item.score} / {item.total_marks}</td>
+              <td>{percent(item.percentage)}</td>
+              <td><span className={`admin-exam-status ${item.passed ? 'submitted' : 'expired'}`}>{item.passed ? 'Passed' : 'Failed'}</span></td>
+              <td>{item.finished_at ? new Date(item.finished_at).toLocaleString() : '—'}</td>
+            </tr>)}</tbody>
+          </table>
+        </div> : !error ? <div className="admin-users-empty"><Icon name="chart" size={22} /><b>No finalized results found</b><span>Completed student attempts matching the filters will appear here.</span></div> : null}
+        {meta && meta.last_page > 1 && <div className="admin-users-pagination"><span>Page {meta.current_page} of {meta.last_page} · {number(meta.total)} results</span><div><button className="button button-outline" onClick={() => setCurrentPage((value) => Math.max(1, value - 1))} disabled={meta.current_page <= 1 || loading}>Previous</button><button className="button button-outline" onClick={() => setCurrentPage((value) => Math.min(meta.last_page, value + 1))} disabled={meta.current_page >= meta.last_page || loading}>Next</button></div></div>}
+      </section>
+      <p className="admin-data-note"><Icon name="shield" size={15} /> Analytics use submitted or expired student attempts only; in-progress attempts and answer-level data are excluded.</p>
+    </section>
+  )
+}
+
+function AdminExams({ token, page }) {
+  const [result, setResult] = useState(null)
+  const [searchText, setSearchText] = useState('')
+  const [search, setSearch] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [selectedAttempt, setSelectedAttempt] = useState(null)
+  const [detail, setDetail] = useState(null)
+  const [detailError, setDetailError] = useState('')
+  const [detailLoading, setDetailLoading] = useState(false)
+  const status = page === 'exams-live' ? 'in_progress' : page === 'exams-completed' ? 'completed' : 'all'
+  const requestKey = `${status}:${search}:${currentPage}`
+
+  useEffect(() => {
+    let active = true
+    const params = new URLSearchParams({ status, per_page: '15', page: String(currentPage) })
+    if (search) params.set('search', search)
+    apiRequest(`/admin/exams?${params.toString()}`, { token })
+      .then((data) => {
+        if (active) setResult({ key: requestKey, data })
+      })
+      .catch((error) => {
+        if (active) setResult({ key: requestKey, error: error.message })
+      })
+    return () => { active = false }
+  }, [requestKey, status, search, currentPage, token])
+
+  const currentResult = result?.key === requestKey ? result : null
+  const attempts = currentResult?.data?.data || []
+  const meta = currentResult?.data?.meta
+  const loading = !currentResult
+  const error = currentResult?.error || ''
+  const heading = page === 'exams-live' ? 'Live exams' : page === 'exams-completed' ? 'Completed exams' : 'Exam attempts'
+
+  function submitSearch(event) {
+    event.preventDefault()
+    setCurrentPage(1)
+    setSearch(searchText.trim())
+  }
+
+  async function openAttempt(attempt) {
+    setSelectedAttempt(attempt)
+    setDetail(null)
+    setDetailError('')
+    setDetailLoading(true)
+    try {
+      const response = await apiRequest(`/admin/exams/${attempt.id}`, { token })
+      setDetail(response.attempt)
+    } catch (requestError) {
+      setDetailError(requestError.message)
+    } finally {
+      setDetailLoading(false)
+    }
+  }
+
+  const number = (value) => Number(value || 0).toLocaleString()
+  const dateTime = (value) => value ? new Date(value).toLocaleString() : '—'
+
+  return (
+    <section className="admin-module-page admin-exams-page">
+      <div className="admin-page-heading">
+        <div><span className="eyebrow">EXAMS &amp; LEARNING</span><h1>{heading}</h1><p>Monitor student exam attempts and review safe result summaries.</p></div>
+      </div>
+      <div className="admin-module-stats admin-users-stats">
+        <span><b>{meta ? number(meta.total) : '—'}</b> matching attempts</span>
+        <span><b>{meta ? number(meta.in_progress) : '—'}</b> in progress</span>
+        <span><b>{meta ? number(meta.submitted + meta.expired) : '—'}</b> completed</span>
+      </div>
+      <section className="admin-panel admin-users-panel">
+        <div className="admin-users-toolbar">
+          <div><span className="eyebrow">ATTEMPT DIRECTORY</span><h2>{heading}</h2></div>
+          <form className="admin-user-search" onSubmit={submitSearch}>
+            <label className="sr-only" htmlFor="admin-exam-search">Search by student or test</label>
+            <input id="admin-exam-search" value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder="Student name, test title or code" maxLength={100} />
+            <button className="button button-outline" type="submit"><Icon name="search" size={16} /> Search</button>
+          </form>
+        </div>
+        {error && <div className="form-error dashboard-error" role="alert">{error}</div>}
+        {loading ? <div className="dashboard-loading">Loading exam attempts…</div> : attempts.length ? (
+          <div className="admin-user-table-wrap">
+            <table className="admin-exam-table">
+              <thead><tr><th>Student</th><th>Test</th><th>Progress</th><th>Status</th><th>Started</th><th>Result</th><th>Details</th></tr></thead>
+              <tbody>{attempts.map((attempt) => <tr key={attempt.id}>
+                <td><b>{attempt.student?.name || 'Unavailable student'}</b><small>Student #{attempt.student?.id ?? '—'}</small></td>
+                <td><b>{attempt.test?.title || 'Unavailable test'}</b><small>{attempt.test?.subject || '—'} · {attempt.test?.code || '—'}</small></td>
+                <td>{number(attempt.answered_count)} / {number(attempt.question_count)} answered</td>
+                <td><span className={`admin-exam-status ${attempt.status}`}>{attempt.status.replace('_', ' ')}</span></td>
+                <td>{dateTime(attempt.started_at)}</td>
+                <td>{attempt.score == null ? '—' : `${attempt.score} / ${attempt.total_marks}`}</td>
+                <td><button className="admin-user-view" onClick={() => openAttempt(attempt)}>View summary</button></td>
+              </tr>)}</tbody>
+            </table>
+          </div>
+        ) : !error ? <div className="admin-users-empty"><Icon name="clock" size={22} /><b>No exam attempts found</b><span>Attempts matching this filter will appear here.</span></div> : null}
+        {meta && meta.last_page > 1 && <div className="admin-users-pagination"><span>Page {meta.current_page} of {meta.last_page} · {number(meta.total)} attempts</span><div><button className="button button-outline" onClick={() => setCurrentPage((value) => Math.max(1, value - 1))} disabled={meta.current_page <= 1 || loading}>Previous</button><button className="button button-outline" onClick={() => setCurrentPage((value) => Math.min(meta.last_page, value + 1))} disabled={meta.current_page >= meta.last_page || loading}>Next</button></div></div>}
+      </section>
+      <p className="admin-data-note"><Icon name="shield" size={15} /> This view does not expose answer choices or student contact details. Suspicious-attempt flags are not available because no detection policy is configured.</p>
+      {selectedAttempt && <div className="auth-backdrop admin-user-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedAttempt(null) }}>
+        <section className="admin-user-detail admin-exam-detail" role="dialog" aria-modal="true" aria-labelledby="admin-exam-detail-title">
+          <button className="auth-close" onClick={() => setSelectedAttempt(null)} aria-label="Close attempt summary"><Icon name="close" /></button>
+          {detailLoading ? <div className="dashboard-loading">Loading attempt summary…</div> : detailError ? <div className="form-error" role="alert">{detailError}</div> : detail && <>
+            <span className="eyebrow">EXAM ATTEMPT #{detail.id}</span>
+            <h2 id="admin-exam-detail-title">{detail.student?.name || 'Unavailable student'}</h2>
+            <p className="admin-user-detail-email">{detail.test?.title || 'Unavailable test'} · {detail.test?.subject || '—'}</p>
+            <span className={`admin-exam-status ${detail.status}`}>{detail.status.replace('_', ' ')}</span>
+            <div className="admin-user-profile-grid">
+              <div><small>Started</small><b>{dateTime(detail.started_at)}</b></div>
+              <div><small>Deadline</small><b>{dateTime(detail.expires_at)}</b></div>
+              <div><small>Finished</small><b>{dateTime(detail.finished_at)}</b></div>
+              <div><small>Duration</small><b>{detail.duration_seconds == null ? '—' : `${Math.floor(detail.duration_seconds / 60)} min ${detail.duration_seconds % 60} sec`}</b></div>
+              <div><small>Answered</small><b>{number(detail.answered_count)} / {number(detail.question_count)}</b></div>
+              <div><small>Score</small><b>{detail.score == null ? 'In progress' : `${detail.score} / ${detail.total_marks}`}</b></div>
+              <div><small>Correct</small><b>{detail.correct_count ?? '—'}</b></div>
+              <div><small>Wrong</small><b>{detail.incorrect_count ?? '—'}</b></div>
+              <div><small>Skipped</small><b>{detail.unanswered_count ?? '—'}</b></div>
+              <div><small>Percentage</small><b>{detail.percentage == null ? '—' : `${Number(detail.percentage).toFixed(1)}%`}</b></div>
+              <div><small>Passed</small><b>{detail.passed == null ? '—' : detail.passed ? 'Yes' : 'No'}</b></div>
+            </div>
+          </>}
+        </section>
+      </div>}
+    </section>
+  )
+}
+
+function AdminModelTests({ token, page, onCreateTest, onRefresh, onNotice, reloadKey }) {
+  const [result, setResult] = useState(null)
+  const [status, setStatus] = useState(page === 'model-tests-drafts' ? 'draft' : 'all')
+  const [searchText, setSearchText] = useState('')
+  const [search, setSearch] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [dialogTest, setDialogTest] = useState(null)
+  const [dialogLoading, setDialogLoading] = useState(false)
+  const [questionResult, setQuestionResult] = useState(null)
+  const [questionSearchText, setQuestionSearchText] = useState('')
+  const [questionSearch, setQuestionSearch] = useState('')
+  const [questionPage, setQuestionPage] = useState(1)
+  const [selectedQuestions, setSelectedQuestions] = useState({})
+  const [actionBusy, setActionBusy] = useState(false)
+  const [actionError, setActionError] = useState('')
+  const [listReloadKey, setListReloadKey] = useState(0)
+  const requestKey = `${status}:${search}:${currentPage}:${reloadKey}:${listReloadKey}`
+  const questionRequestKey = dialogTest ? `${dialogTest.id}:${questionSearch}:${questionPage}` : ''
+
+  useEffect(() => {
+    let active = true
+    const params = new URLSearchParams({ status, search, per_page: '15', page: String(currentPage) })
+    apiRequest(`/admin/tests?${params.toString()}`, { token })
+      .then((data) => {
+        if (active) setResult({ key: requestKey, data })
+      })
+      .catch((error) => {
+        if (active) setResult({ key: requestKey, error: error.message })
+      })
+    return () => { active = false }
+  }, [requestKey, status, search, currentPage, reloadKey, token])
+
+  useEffect(() => {
+    if (!dialogTest) return undefined
+    let active = true
+    const params = new URLSearchParams({
+      subject_id: String(dialogTest.subject.id),
+      status: 'active',
+      per_page: '10',
+      page: String(questionPage),
+    })
+    if (questionSearch) params.set('search', questionSearch)
+    apiRequest(`/admin/questions?${params.toString()}`, { token })
+      .then((data) => {
+        if (active) setQuestionResult({ key: questionRequestKey, data })
+      })
+      .catch((error) => {
+        if (active) setQuestionResult({ key: questionRequestKey, error: error.message })
+      })
+    return () => { active = false }
+  }, [dialogTest, questionRequestKey, questionSearch, questionPage, token])
+
+  const currentResult = result?.key === requestKey ? result : null
+  const tests = currentResult?.data?.data || []
+  const meta = currentResult?.data?.meta
+  const loading = !currentResult
+  const error = currentResult?.error || ''
+  const currentQuestionResult = questionResult?.key === questionRequestKey ? questionResult : null
+  const questions = currentQuestionResult?.data?.data || []
+  const questionMeta = currentQuestionResult?.data?.meta
+  const questionLoading = Boolean(dialogTest) && !currentQuestionResult
+  const selected = Object.values(selectedQuestions)
+  const selectedIds = selected.map((question) => question.id)
+
+  function submitSearch(event) {
+    event.preventDefault()
+    setCurrentPage(1)
+    setSearch(searchText.trim())
+  }
+
+  async function openQuestionManager(test) {
+    setDialogLoading(true)
+    setActionError('')
+    setQuestionResult(null)
+    setQuestionPage(1)
+    setQuestionSearch('')
+    setQuestionSearchText('')
+    try {
+      const response = await apiRequest(`/admin/tests/${test.id}`, { token })
+      const assignedQuestions = response.test.questions || []
+      setDialogTest(response.test)
+      setSelectedQuestions(Object.fromEntries(assignedQuestions.map((question) => [question.id, question])))
+    } catch (requestError) {
+      setActionError(requestError.message)
+    } finally {
+      setDialogLoading(false)
+    }
+  }
+
+  function toggleQuestion(question) {
+    setSelectedQuestions((current) => {
+      if (current[question.id]) {
+        const next = { ...current }
+        delete next[question.id]
+        return next
+      }
+      if (Object.keys(current).length >= dialogTest.question_count) return current
+      return { ...current, [question.id]: question }
+    })
+  }
+
+  async function saveQuestions() {
+    setActionError('')
+    setActionBusy(true)
+    try {
+      await apiRequest(`/admin/tests/${dialogTest.id}/questions`, {
+        method: 'PUT',
+        token,
+        body: JSON.stringify({ question_ids: selectedIds }),
+      })
+      setListReloadKey((value) => value + 1)
+      onNotice('Draft test questions saved.')
+      return true
+    } catch (requestError) {
+      setActionError(requestError.message)
+      return false
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
+  async function publishTest() {
+    if (selectedIds.length !== dialogTest.question_count) {
+      setActionError(`Select exactly ${dialogTest.question_count} questions before publishing.`)
+      return
+    }
+    if (!window.confirm(`Publish “${dialogTest.title}”? Students will be able to take this test, and it can no longer be edited.`)) return
+    setActionError('')
+    setActionBusy(true)
+    try {
+      await apiRequest(`/admin/tests/${dialogTest.id}/questions`, {
+        method: 'PUT',
+        token,
+        body: JSON.stringify({ question_ids: selectedIds }),
+      })
+      const response = await apiRequest(`/admin/tests/${dialogTest.id}/publish`, { method: 'POST', token })
+      setDialogTest(null)
+      onNotice(response.message || 'Test published successfully.')
+      onRefresh()
+    } catch (requestError) {
+      setActionError(requestError.message)
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
+  const number = (value) => Number(value || 0).toLocaleString()
+  const statusLabel = status === 'draft' ? 'Draft tests' : status === 'published' ? 'Published tests' : 'All tests'
+
+  return (
+    <section className="admin-module-page admin-model-tests-page">
+      <div className="admin-page-heading">
+        <div><span className="eyebrow">LEARNING CONTENT</span><h1>Model tests</h1><p>Create test drafts, assign active questions, and publish the finished tests for students.</p></div>
+        <button className="button button-primary" onClick={onCreateTest}><Icon name="arrow" size={17} /> Create model test</button>
+      </div>
+      <div className="admin-module-stats admin-users-stats">
+        <span><b>{meta ? number(meta.total) : '—'}</b> matching tests</span>
+        <span><b>{meta ? number(meta.published) : '—'}</b> published</span>
+        <span><b>{meta ? number(meta.draft) : '—'}</b> drafts</span>
+      </div>
+      <section className="admin-panel admin-users-panel">
+        <div className="admin-users-toolbar">
+          <div><span className="eyebrow">TEST DIRECTORY</span><h2>{statusLabel}</h2></div>
+          <div className="admin-question-tools">
+            <label className="sr-only" htmlFor="model-test-status">Filter tests by status</label>
+            <select id="model-test-status" value={status} onChange={(event) => { setCurrentPage(1); setStatus(event.target.value) }}><option value="all">All statuses</option><option value="draft">Draft</option><option value="published">Published</option></select>
+            <form className="admin-user-search" onSubmit={submitSearch}>
+              <label className="sr-only" htmlFor="model-test-search">Search tests</label>
+              <input id="model-test-search" value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder="Title or test code" maxLength={100} />
+              <button className="button button-outline" type="submit"><Icon name="search" size={16} /> Search</button>
+            </form>
+          </div>
+        </div>
+        {actionError && !dialogTest && <div className="form-error dashboard-error" role="alert">{actionError}</div>}
+        {error && <div className="form-error dashboard-error" role="alert">{error}</div>}
+        {loading ? <div className="dashboard-loading">Loading model tests…</div> : tests.length ? (
+          <div className="admin-test-table">
+            <div className="admin-table-row admin-model-test-row admin-table-head"><span>TEST</span><span>SUBJECT</span><span>QUESTIONS</span><span>STATUS</span><span>ACTIONS</span></div>
+            {tests.map((test) => <div className="admin-table-row admin-model-test-row" key={test.id}>
+              <span><b>{test.title}</b><small>{test.code} · {test.duration_minutes} min · {number(test.total_marks)} marks</small></span>
+              <span>{test.subject?.name || '—'}</span>
+              <span>{number(test.assigned_question_count)} / {number(test.question_count)}</span>
+              <span><i className={test.status === 'published' ? 'published-dot' : 'draft-dot'} /> {test.status}</span>
+              <span>{test.status === 'draft' ? <button className="admin-test-action" onClick={() => openQuestionManager(test)} disabled={dialogLoading}>Manage questions</button> : <span className="admin-test-readonly">Locked after publish</span>}</span>
+            </div>)}
+          </div>
+        ) : !error ? <div className="admin-users-empty"><Icon name="book" size={22} /><b>No model tests found</b><span>Create a draft, or change the status filter or search.</span></div> : null}
+        {meta && meta.last_page > 1 && <div className="admin-users-pagination"><span>Page {meta.current_page} of {meta.last_page} · {number(meta.total)} tests</span><div><button className="button button-outline" onClick={() => setCurrentPage((value) => Math.max(1, value - 1))} disabled={meta.current_page <= 1 || loading}>Previous</button><button className="button button-outline" onClick={() => setCurrentPage((value) => Math.min(meta.last_page, value + 1))} disabled={meta.current_page >= meta.last_page || loading}>Next</button></div></div>}
+      </section>
+      <p className="admin-data-note"><Icon name="shield" size={15} /> Published tests are immutable so students see consistent questions and scoring throughout their attempts.</p>
+      {dialogTest && <div className="auth-backdrop admin-create-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !actionBusy) setDialogTest(null) }}>
+        <section className="auth-card admin-create-card admin-test-assignment-card" role="dialog" aria-modal="true" aria-labelledby="test-assignment-title">
+          <button className="auth-close" onClick={() => setDialogTest(null)} aria-label="Close question assignment" disabled={actionBusy}><Icon name="close" /></button>
+          <div className="auth-eyebrow">DRAFT TEST BUILDER</div>
+          <h2 id="test-assignment-title">{dialogTest.title}</h2>
+          <p className="auth-intro">{dialogTest.subject?.name} · Select {dialogTest.question_count} active questions. Each selected question receives an even share of the test marks.</p>
+          {actionError && <div className="form-error" role="alert">{actionError}</div>}
+          <div className="admin-assignment-summary"><b>{selected.length} / {dialogTest.question_count} selected</b><span>{number(dialogTest.total_marks)} total marks · {dialogTest.duration_minutes} min</span></div>
+          {selected.length > 0 && <div className="admin-assigned-list"><b>Selected questions</b>{selected.map((question, index) => <div key={question.id}><span>{index + 1}. {question.question_text}</span><button type="button" onClick={() => toggleQuestion(question)} disabled={actionBusy} aria-label={`Remove selected question ${index + 1}`}>Remove</button></div>)}</div>}
+          <form className="admin-assignment-search" onSubmit={(event) => { event.preventDefault(); setQuestionPage(1); setQuestionSearch(questionSearchText.trim()) }}>
+            <label htmlFor="assignment-question-search">Find active questions in {dialogTest.subject?.name}</label>
+            <div><input id="assignment-question-search" value={questionSearchText} onChange={(event) => setQuestionSearchText(event.target.value)} placeholder="Search question text" maxLength={200} /><button className="button button-outline" type="submit">Search</button></div>
+          </form>
+          {currentQuestionResult?.error && <div className="form-error" role="alert">{currentQuestionResult.error}</div>}
+          {questionLoading ? <div className="dashboard-loading">Loading active questions…</div> : questions.length ? <div className="admin-assignment-questions">{questions.map((question) => <label key={question.id} className={selectedQuestions[question.id] ? 'is-selected' : ''}><input type="checkbox" checked={Boolean(selectedQuestions[question.id])} onChange={() => toggleQuestion(question)} disabled={actionBusy || (!selectedQuestions[question.id] && selected.length >= dialogTest.question_count)} /><span><b>{question.question_text}</b><small>{question.difficulty} · {question.options.length} options</small></span></label>)}</div> : !currentQuestionResult?.error ? <p className="empty-state">No active questions match this search. Add or activate questions for this subject first.</p> : null}
+          {questionMeta && questionMeta.last_page > 1 && <div className="admin-users-pagination"><span>Question page {questionMeta.current_page} of {questionMeta.last_page}</span><div><button className="button button-outline" onClick={() => setQuestionPage((value) => Math.max(1, value - 1))} disabled={questionMeta.current_page <= 1 || questionLoading || actionBusy}>Previous</button><button className="button button-outline" onClick={() => setQuestionPage((value) => Math.min(questionMeta.last_page, value + 1))} disabled={questionMeta.current_page >= questionMeta.last_page || questionLoading || actionBusy}>Next</button></div></div>}
+          <div className="admin-assignment-actions"><button className="button button-outline" onClick={saveQuestions} disabled={actionBusy}>{actionBusy ? 'Saving…' : 'Save question set'}</button><button className="button button-primary" onClick={publishTest} disabled={actionBusy}>{actionBusy ? 'Publishing…' : 'Publish test'} <Icon name="arrow" size={16} /></button></div>
+        </section>
+      </div>}
+    </section>
+  )
+}
+
 function AdminDashboard({ user, token, onLogout, busy, sessionError, navigateTo }) {
   const [metrics, setMetrics] = useState(null)
   const [activity, setActivity] = useState([])
@@ -612,6 +1449,10 @@ function AdminDashboard({ user, token, onLogout, busy, sessionError, navigateTo 
       setCreateError('')
       setCreateOpen(true)
       setSidebarOpen(false)
+      return
+    }
+    if (item.action === 'create-question') {
+      selectPage('question-bank-create')
       return
     }
 
@@ -735,9 +1576,9 @@ function AdminDashboard({ user, token, onLogout, busy, sessionError, navigateTo 
               <div className="admin-page-heading"><div><span className="eyebrow">OVERVIEW</span><h1>Good day, {adminName} <span>✳</span></h1><p>Here’s what’s happening across your learning platform.</p></div><button className="button button-primary" onClick={() => { setCreateError(''); setCreateOpen(true) }}><Icon name="arrow" size={17} /> Create model test</button></div>
               <div className="admin-quick-actions">
                 <span>QUICK ACTIONS</span>
-                <button onClick={() => { setActivePage('question-bank'); setSidebarOpen(false) }}><Icon name="question" size={16} /> Add question <small>SOON</small></button>
+                <button onClick={() => { setActivePage('question-bank-create'); setSidebarOpen(false) }}><Icon name="question" size={16} /> Add question</button>
                 <button onClick={() => { setCreateError(''); setCreateOpen(true) }}><Icon name="book" size={16} /> Create model test</button>
-                <button onClick={() => { setActivePage('subjects'); setSidebarOpen(false) }}><Icon name="book" size={16} /> Add subject <small>SOON</small></button>
+                <button onClick={() => { setActivePage('subjects'); setSidebarOpen(false) }}><Icon name="book" size={16} /> Manage subjects</button>
                 <button onClick={() => { setActivePage('coupons'); setSidebarOpen(false) }}><Icon name="tag" size={16} /> Create coupon <small>SOON</small></button>
                 <button onClick={() => { setActivePage('notifications'); setSidebarOpen(false) }}><Icon name="bell" size={16} /> Send notification <small>SOON</small></button>
               </div>
@@ -763,10 +1604,16 @@ function AdminDashboard({ user, token, onLogout, busy, sessionError, navigateTo 
               </section>
               <p className="admin-data-note"><Icon name="shield" size={15} /> Revenue, premium subscriptions, referrals and top-student rankings are not tracked until their modules are implemented.</p>
             </>
-          ) : activePage === 'model-tests' ? (
-            <section className="admin-module-page"><div className="admin-page-heading"><div><span className="eyebrow">LEARNING CONTENT</span><h1>Model tests</h1><p>Create and publish practice exams for students.</p></div><button className="button button-primary" onClick={() => { setCreateError(''); setCreateOpen(true) }}><Icon name="arrow" size={17} /> Create model test</button></div><div className="admin-module-stats"><span><b>{number(metrics?.tests)}</b> total tests</span><span><b>{number(metrics?.published_tests)}</b> published</span><span><b>{number(metrics?.draft_tests)}</b> drafts</span></div><div className="admin-panel admin-recent-panel"><div className="admin-panel-heading"><div><span className="eyebrow">PUBLIC CATALOGUE</span><h2>Published tests</h2></div></div>{loading ? <div className="dashboard-loading">Loading tests…</div> : tests.length ? <div className="admin-test-table"><div className="admin-table-row admin-table-head"><span>TEST</span><span>SUBJECT</span><span>QUESTIONS</span><span>STATUS</span></div>{tests.map((test) => <div className="admin-table-row" key={test.id}><span><b>{test.title}</b><small>{test.code}</small></span><span>{test.subject?.name || '—'}</span><span>{number(test.question_count)}</span><span><i className="published-dot" /> Published</span></div>)}</div> : <p className="empty-state">No published tests yet. Draft tests can be created, but assigning question sets requires the question-management API.</p>}</div><p className="admin-data-note"><Icon name="info" size={15} /> Draft listing and question assignment are not yet available in the admin interface.</p></section>
-          ) : activePage === 'model-tests' ? (
-            <section className="admin-module-page"><div className="admin-page-heading"><div><span className="eyebrow">LEARNING CONTENT</span><h1>Model tests</h1><p>Create and publish practice exams for students.</p></div><button className="button button-primary" onClick={() => { setCreateError(''); setCreateOpen(true) }}><Icon name="arrow" size={17} /> Create model test</button></div><div className="admin-module-stats"><span><b>{number(metrics?.tests)}</b> total tests</span><span><b>{number(metrics?.published_tests)}</b> published</span><span><b>{number(metrics?.draft_tests)}</b> drafts</span></div><div className="admin-panel admin-recent-panel"><div className="admin-panel-heading"><div><span className="eyebrow">PUBLIC CATALOGUE</span><h2>Published tests</h2></div></div>{loading ? <div className="dashboard-loading">Loading tests…</div> : tests.length ? <div className="admin-test-table"><div className="admin-table-row admin-table-head"><span>TEST</span><span>SUBJECT</span><span>QUESTIONS</span><span>STATUS</span></div>{tests.map((test) => <div className="admin-table-row" key={test.id}><span><b>{test.title}</b><small>{test.code}</small></span><span>{test.subject?.name || '—'}</span><span>{number(test.question_count)}</span><span><i className="published-dot" /> Published</span></div>)}</div> : <p className="empty-state">No published tests yet. Draft tests can be created, but assigning question sets requires the question-management API.</p>}</div><p className="admin-data-note"><Icon name="info" size={15} /> Draft listing and question assignment are not yet available in the admin interface.</p></section>
+          ) : activePage === 'results-all' || activePage === 'results-analytics' ? (
+            <AdminResults token={token} page={activePage} />
+          ) : activePage === 'exams-live' || activePage === 'exams-completed' || activePage === 'exams-attempts' ? (
+            <AdminExams token={token} page={activePage} />
+          ) : activePage === 'model-tests' || activePage === 'model-tests-drafts' ? (
+            <AdminModelTests token={token} page={activePage} onCreateTest={() => { setCreateError(''); setCreateOpen(true) }} onRefresh={() => { setLoadError(''); setLoading(true); setReloadKey((value) => value + 1) }} onNotice={setNotice} reloadKey={reloadKey} />
+          ) : activePage === 'subjects' ? (
+            <AdminSubjects token={token} onNotice={setNotice} />
+          ) : activePage === 'question-bank' || activePage === 'question-bank-create' ? (
+            <AdminQuestionBank token={token} page={activePage} onNotice={setNotice} />
           ) : activePage === 'users' || activePage.startsWith('users-') ? (
             <AdminUsers token={token} page={activePage} onNotice={setNotice} />
           ) : (
@@ -774,16 +1621,23 @@ function AdminDashboard({ user, token, onLogout, busy, sessionError, navigateTo 
           )}
         </div>
       </section>
-      {createOpen && <div className="auth-backdrop admin-create-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !createBusy) setCreateOpen(false) }}><section className="auth-card admin-create-card" role="dialog" aria-modal="true" aria-labelledby="create-test-title"><button className="auth-close" onClick={() => setCreateOpen(false)} aria-label="Close create test form"><Icon name="close" /></button><div className="auth-eyebrow">MODEL TEST BUILDER</div><h2 id="create-test-title">Create a test draft</h2><p className="auth-intro">Set the exam basics. Question assignment and publishing are API-only until their admin screens are available.</p>{createError && <div className="form-error" role="alert">{createError}</div>}<form className="auth-form admin-test-form" onSubmit={createTest}><label>Test title<input name="title" required maxLength="255" placeholder="e.g. Nursing Practice Set 01" /></label><label>Subject<select name="subject_id" required defaultValue=""><option value="" disabled>Select a subject</option>{subjectList.map((subject) => <option value={subject.id} key={subject.id}>{subject.name}</option>)}</select></label><div className="admin-form-row"><label>Duration (minutes)<input name="duration_minutes" type="number" min="1" max="600" defaultValue="30" required /></label><label>Question count<input name="question_count" type="number" min="1" max="500" defaultValue="20" required /></label></div><div className="admin-form-row"><label>Total marks<input name="total_marks" type="number" min="0.01" step="0.01" defaultValue="20" required /></label><label>Passing score<input name="passing_score" type="number" min="0" step="0.01" defaultValue="10" required /></label></div><div className="admin-form-row"><label>Wrong answer penalty<input name="negative_marking" type="number" min="0" step="0.01" defaultValue="0.25" /></label><label className="admin-checkbox-label"><input name="is_negative_marking_enabled" type="checkbox" defaultChecked /> Enable negative marking</label></div><label>Description (optional)<input name="description" maxLength="10000" placeholder="Short description for this test" /></label><label className="admin-checkbox-label"><input name="is_premium" type="checkbox" /> Premium test</label><button className="button button-primary auth-submit" disabled={createBusy || subjectList.length === 0}>{createBusy ? 'Creating draft…' : 'Create test draft'} {!createBusy && <Icon name="arrow" size={17} />}</button>{subjectList.length === 0 && <span className="admin-data-note">An active subject is required before creating a test.</span>}</form></section></div>}
+      {createOpen && <div className="auth-backdrop admin-create-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !createBusy) setCreateOpen(false) }}><section className="auth-card admin-create-card" role="dialog" aria-modal="true" aria-labelledby="create-test-title"><button className="auth-close" onClick={() => setCreateOpen(false)} aria-label="Close create test form"><Icon name="close" /></button><div className="auth-eyebrow">MODEL TEST BUILDER</div><h2 id="create-test-title">Create a test draft</h2><p className="auth-intro">Set the exam basics, then assign questions and publish from the test directory.</p>{createError && <div className="form-error" role="alert">{createError}</div>}<form className="auth-form admin-test-form" onSubmit={createTest}><label>Test title<input name="title" required maxLength="255" placeholder="e.g. Nursing Practice Set 01" /></label><label>Subject<select name="subject_id" required defaultValue=""><option value="" disabled>Select a subject</option>{subjectList.map((subject) => <option value={subject.id} key={subject.id}>{subject.name}</option>)}</select></label><div className="admin-form-row"><label>Duration (minutes)<input name="duration_minutes" type="number" min="1" max="600" defaultValue="30" required /></label><label>Question count<input name="question_count" type="number" min="1" max="500" defaultValue="20" required /></label></div><div className="admin-form-row"><label>Total marks<input name="total_marks" type="number" min="0.01" step="0.01" defaultValue="20" required /></label><label>Passing score<input name="passing_score" type="number" min="0" step="0.01" defaultValue="10" required /></label></div><div className="admin-form-row"><label>Wrong answer penalty<input name="negative_marking" type="number" min="0" step="0.01" defaultValue="0.25" /></label><label className="admin-checkbox-label"><input name="is_negative_marking_enabled" type="checkbox" defaultChecked /> Enable negative marking</label></div><label>Description (optional)<input name="description" maxLength="10000" placeholder="Short description for this test" /></label><label className="admin-checkbox-label"><input name="is_premium" type="checkbox" /> Premium test</label><button className="button button-primary auth-submit" disabled={createBusy || subjectList.length === 0}>{createBusy ? 'Creating draft…' : 'Create test draft'} {!createBusy && <Icon name="arrow" size={17} />}</button>{subjectList.length === 0 && <span className="admin-data-note">An active subject is required before creating a test.</span>}</form></section></div>}
     </main>
   )
 }
 
-function Dashboard({ user, token, onLogout, busy, sessionError, isAdminRoute = false, onNavigate }) {
+function Dashboard({ user, token, onLogout, busy, sessionError, isAdminRoute = false, onNavigate, onUserUpdated }) {
   const [tests, setTests] = useState([])
   const [subjectList, setSubjectList] = useState([])
+  const [profile, setProfile] = useState(user)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
+  const [profileOpen, setProfileOpen] = useState(false)
+  const [profileBusy, setProfileBusy] = useState(false)
+  const [photoBusy, setPhotoBusy] = useState(false)
+  const [profileError, setProfileError] = useState('')
+  const [profileNotice, setProfileNotice] = useState('')
+  const [today] = useState(() => new Date().toISOString().slice(0, 10))
   const isStaff = ['admin', 'editor'].includes(user.role)
 
   useEffect(() => {
@@ -791,10 +1645,12 @@ function Dashboard({ user, token, onLogout, busy, sessionError, isAdminRoute = f
     Promise.all([
       apiRequest('/subjects?per_page=8', { token }),
       apiRequest('/tests?per_page=6', { token }),
-    ]).then(([subjectData, testData]) => {
+      apiRequest('/profile', { token }),
+    ]).then(([subjectData, testData, profileData]) => {
       if (!active) return
       setSubjectList(subjectData.data || [])
       setTests(testData.data || [])
+      setProfile(profileData.user)
     }).catch((requestError) => {
       if (active) setLoadError(requestError.message)
     }).finally(() => {
@@ -804,7 +1660,63 @@ function Dashboard({ user, token, onLogout, busy, sessionError, isAdminRoute = f
     return () => { active = false }
   }, [token])
 
-  const greeting = user.name.trim().split(/\s+/)[0]
+  const greeting = profile.name.trim().split(/\s+/)[0]
+
+  async function updateProfile(event) {
+    event.preventDefault()
+    setProfileError('')
+    setProfileNotice('')
+    setProfileBusy(true)
+    const fields = new FormData(event.currentTarget)
+    const payload = {
+      name: fields.get('name').trim(),
+      phone: fields.get('phone').trim() || null,
+      date_of_birth: fields.get('date_of_birth') || null,
+      gender: fields.get('gender') || null,
+      address: fields.get('address').trim() || null,
+    }
+
+    try {
+      const result = await apiRequest('/profile', {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify(payload),
+      })
+      setProfile(result.user)
+      onUserUpdated(result.user)
+      setProfileNotice(result.message)
+    } catch (requestError) {
+      setProfileError(requestError.message)
+    } finally {
+      setProfileBusy(false)
+    }
+  }
+
+  async function updateProfilePhoto(event) {
+    const photo = event.currentTarget.files?.[0]
+    event.currentTarget.value = ''
+    if (!photo) return
+
+    setProfileError('')
+    setProfileNotice('')
+    setPhotoBusy(true)
+    const payload = new FormData()
+    payload.append('photo', photo)
+    try {
+      const result = await apiRequest('/profile/photo', {
+        method: 'POST',
+        token,
+        body: payload,
+      })
+      setProfile(result.user)
+      onUserUpdated(result.user)
+      setProfileNotice(result.message)
+    } catch (requestError) {
+      setProfileError(requestError.message)
+    } finally {
+      setPhotoBusy(false)
+    }
+  }
 
   return (
     <main className="dashboard-page">
@@ -815,7 +1727,7 @@ function Dashboard({ user, token, onLogout, busy, sessionError, isAdminRoute = f
             <h1>{isAdminRoute ? <>Welcome, {greeting}. <span>Admin dashboard</span></> : <>Hi, {greeting}. <span>You’re right on time.</span></>}</h1>
             <p>{isAdminRoute ? 'Your staff access is active. Review the learning catalogue and available platform data below.' : 'Every question you practice is a step toward the nurse you’re becoming.'}</p>
           </div>
-          <div className="profile-chip"><span className="profile-avatar">{greeting.charAt(0).toUpperCase()}</span><span><b>{user.name}</b><small>{user.role}</small></span></div>
+          <div className="dashboard-profile-actions"><div className="profile-chip">{profile.avatar_url ? <img className="profile-avatar profile-photo-avatar" src={profile.avatar_url} alt="" /> : <span className="profile-avatar">{greeting.charAt(0).toUpperCase()}</span>}<span><b>{profile.name}</b><small>{user.role}</small></span></div><button className="button button-outline dashboard-edit-profile" onClick={() => { setProfileOpen(true); setProfileError(''); setProfileNotice('') }}><Icon name="settings" size={15} /> Edit profile</button></div>
         </div>
         <div className="dashboard-role-banner">
           <span className="role-banner-icon"><Icon name={isStaff ? 'shield' : 'heart'} /></span>
@@ -844,6 +1756,31 @@ function Dashboard({ user, token, onLogout, busy, sessionError, isAdminRoute = f
         <button className="button button-outline dashboard-logout" onClick={onLogout} disabled={busy}><Icon name="logout" size={17} /> {busy ? 'Signing out…' : 'Sign out'}</button>
         {sessionError && <p className="dashboard-api-error" role="alert">{sessionError}</p>}
       </div>
+      {profileOpen && <div className="auth-backdrop profile-editor-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !profileBusy && !photoBusy) setProfileOpen(false) }}>
+        <section className="auth-card profile-editor-card" role="dialog" aria-modal="true" aria-labelledby="profile-editor-title">
+          <button className="auth-close" onClick={() => setProfileOpen(false)} aria-label="Close profile editor" disabled={profileBusy || photoBusy}><Icon name="close" /></button>
+          <div className="auth-eyebrow">ACCOUNT SETTINGS</div>
+          <h2 id="profile-editor-title">Your profile</h2>
+          <p className="auth-intro">Keep your personal information up to date.</p>
+          {profileError && <div className="form-error" role="alert">{profileError}</div>}
+          {profileNotice && <div className="profile-success" role="status"><Icon name="check" size={16} /> {profileNotice}</div>}
+          <div className="profile-photo-control">
+            {profile.avatar_url ? <img className="profile-avatar profile-photo-avatar" src={profile.avatar_url} alt="" /> : <span className="profile-avatar">{greeting.charAt(0).toUpperCase()}</span>}
+            <div><b>Profile photo</b><small>JPEG, PNG, or WebP · up to 2 MB</small><label className="button button-outline profile-photo-button">{photoBusy ? 'Uploading…' : 'Choose photo'}<input type="file" accept="image/jpeg,image/png,image/webp" onChange={updateProfilePhoto} disabled={photoBusy || profileBusy} /></label></div>
+          </div>
+          <form className="auth-form profile-editor-form" onSubmit={updateProfile}>
+            <label>Full name<input name="name" required maxLength="255" defaultValue={profile.name} autoComplete="name" /></label>
+            <label>Email address<input type="email" value={profile.email} readOnly autoComplete="email" /></label>
+            <div className="admin-form-row">
+              <label>Phone number<input name="phone" type="tel" maxLength="30" defaultValue={profile.phone || ''} autoComplete="tel" /></label>
+              <label>Date of birth<input name="date_of_birth" type="date" max={today} defaultValue={profile.date_of_birth || ''} /></label>
+            </div>
+            <label>Gender<select name="gender" defaultValue={profile.gender || ''}><option value="">Prefer not to specify</option><option value="female">Female</option><option value="male">Male</option><option value="other">Other</option><option value="prefer_not_to_say">Prefer not to say</option></select></label>
+            <label>Address<textarea name="address" maxLength="1000" defaultValue={profile.address || ''} rows="3" /></label>
+            <button className="button button-primary auth-submit" type="submit" disabled={profileBusy || photoBusy}>{profileBusy ? 'Saving profile…' : 'Save profile'} {!profileBusy && <Icon name="arrow" size={17} />}</button>
+          </form>
+        </section>
+      </div>}
     </main>
   )
 }
@@ -921,7 +1858,7 @@ function App() {
           ? <main className="route-denied"><div className="route-denied-card"><span className="auth-icon"><Icon name="shield" /></span><h1>Staff access required</h1><p>The admin dashboard is only available to users with an admin or editor role.</p><button className="button button-primary" onClick={() => navigateTo('/')}>Return to the home page <Icon name="arrow" size={16} /></button></div></main>
           : pathname === '/admin/dashboard'
             ? <AdminDashboard user={session.user} token={session.token} onLogout={handleLogout} busy={sessionBusy} sessionError={sessionError} navigateTo={navigateTo} />
-            : <Dashboard user={session.user} token={session.token} onLogout={handleLogout} busy={sessionBusy} sessionError={sessionError} onNavigate={navigateTo} />
+            : <Dashboard user={session.user} token={session.token} onLogout={handleLogout} busy={sessionBusy} sessionError={sessionError} onNavigate={navigateTo} onUserUpdated={(updatedUser) => setSession((current) => current ? { ...current, user: updatedUser } : current)} />
         : !session && authChecked && pathname === '/admin/dashboard'
           ? <main className="route-denied"><div className="route-denied-card"><span className="auth-icon"><Icon name="shield" /></span><h1>Admin dashboard</h1><p>Sign in with an assigned admin or editor account to continue.</p><button className="button button-primary" onClick={() => setAuthMode('login')}>Staff log in <Icon name="arrow" size={16} /></button><button className="route-home-link" onClick={() => navigateTo('/')}>Back to home</button></div></main>
         : !authChecked && pathname === '/admin/dashboard'

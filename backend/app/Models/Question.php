@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Question extends Model
 {
@@ -30,5 +31,12 @@ class Question extends Model
     public function subject(): BelongsTo
     {
         return $this->belongsTo(Subject::class);
+    }
+
+    public function tests(): BelongsToMany
+    {
+        return $this->belongsToMany(ModelTest::class, 'test_questions', 'question_id', 'test_id')
+            ->withPivot(['sequence', 'points'])
+            ->withTimestamps();
     }
 }

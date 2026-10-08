@@ -100,7 +100,7 @@ All profile endpoints require authentication using the token returned by registe
 - `PATCH /api/profile` — update `name`, `phone`, `date_of_birth`, `gender`, or `address`.
 - `POST /api/profile/photo` — upload a `photo` multipart field (JPEG, PNG, or WebP; maximum 2 MB).
 
-Profile responses include `avatar_url`. Run `php artisan storage:link` to make uploaded photos available via the public storage disk.
+Profile responses include the authenticated user's editable details and `avatar_url`. The signed-in dashboard provides a profile editor and photo upload control. Run `php artisan storage:link` to make uploaded photos available via the public storage disk.
 
 Configure a real mail transport (for example `MAIL_MAILER=smtp` with SMTP host, port, username, and password) to deliver reset codes outside local development.
 
@@ -122,6 +122,18 @@ Optional query parameters:
 
 `GET /api/subjects/{id}`
 
+### Admin subject management
+
+These endpoints require an authenticated `admin` or `editor` role:
+
+- `GET /api/admin/subjects?search=nur&status=all&page=1&per_page=15` lists active and inactive subjects, with question/test counts. `status` is `all`, `active`, or `inactive`.
+- `POST /api/admin/subjects` creates a subject.
+- `PATCH /api/admin/subjects/{subject}` updates a subject.
+
+Create and update requests accept `name` (required, unique), `code` (required, unique ASCII letters/numbers/underscore/hyphen, up to 20 characters), optional `description` (up to 2,000 characters), and optional `is_active`. Inactive subjects are hidden from public student catalogue endpoints. Subjects are deactivated instead of deleted to preserve question and test references.
+
+The `/admin/dashboard` Subjects page supports searching, status filters, create/edit, and activation state.
+
 ## Topics
 
 ### List topics
@@ -138,6 +150,8 @@ Required fields:
 - `name`
 
 ## Questions
+
+The generic student-facing question endpoints in this legacy blueprint are proposals, not live routes. Implemented admin question-bank routes and authorization are documented below.
 
 ### List questions
 
@@ -167,6 +181,18 @@ Required:
 ### Delete question
 
 `DELETE /api/questions/{id}`
+
+### Admin question bank
+
+The following question-bank management endpoints require an authenticated `admin` or `editor` role:
+
+- `GET /api/admin/questions?search=airway&subject_id=1&difficulty=easy&status=active&page=1&per_page=15` lists questions, including answer keys for authorized staff. Filters are optional; difficulty is `easy`, `medium`, or `hard`, status is `all`, `active`, or `inactive`, and page size is limited to 100.
+- `POST /api/admin/questions` creates a question.
+- `PATCH /api/admin/questions/{question}` updates a question or changes its active state.
+
+Create/update fields: `subject_id`, `question_text`, ordered `options` (2–6 strings), one-based `correct_option`, optional `explanation`, `difficulty`, and `is_active`. New questions require an active subject. Questions assigned to published tests are locked against edits and deactivation to preserve published test content. Referenced questions are deactivated instead of deleted. Bulk import and question-report workflows remain unimplemented.
+
+The admin console Question Bank supports search, subject/status/difficulty filters, paginated results, question create/edit, and activation state.
 
 ## Tests
 
@@ -204,6 +230,11 @@ Required:
 - Optional `description`, `negative_marking`, `is_negative_marking_enabled`, `is_premium`, and `question_ids`
 
 Creates a draft. Assigned questions must be active and belong to the selected subject.
+
+### List and inspect admin tests
+
+- `GET /api/admin/tests?status=all&search=nursing&page=1&per_page=15` lists draft and published tests for admins/editors. `status` is `all`, `draft`, or `published`; search matches the test title or code. The paginated response includes each test's assigned question count and overall draft/published counts.
+- `GET /api/admin/tests/{id}` returns test details and assigned question text/options for the protected test builder. Correct answers are not included.
 
 ### Update draft test
 
@@ -245,9 +276,24 @@ These endpoints require an authenticated `admin` role. Editors and students are 
 
 Blocking a student revokes all their API tokens in the same transaction, so existing sessions stop working immediately. Reactivation permits a new login; it does not restore revoked tokens. Admin user management cannot change staff accounts.
 
+### Monitor exam attempts
+
+These read-only endpoints require an authenticated `admin` or `editor` role. Attempt listings include student names and aggregate progress/results only; student email, answer selections, correct answers, and explanations are not returned.
+
+- `GET /api/admin/exams?status=all&search=nursing&page=1&per_page=15` lists attempts for student accounts. `status` can be `all`, `in_progress`, `submitted`, `expired`, or `completed` (`submitted` and `expired` together). Search matches the student's name, test title, or test code. The response includes paginated attempts and status totals.
+- `GET /api/admin/exams/{attempt}` returns a single student's attempt summary and timing/progress/result fields; it does not return answer records.
+
+Suspicious-attempt classification is not implemented because the platform has no configured detection policy or reliable signal to support it. These endpoints do not modify, submit, or expire attempts.
+
+### Review results and analytics
+
+`GET /api/admin/results?status=all&search=amina&subject_id=1&test_id=2&page=1&per_page=15` requires an authenticated `admin` or `editor`. It lists only finalized (`submitted` or `expired`) attempts by student accounts. `status` is `all`, `submitted`, `expired`, `passed`, or `failed`; search matches student name, test title, or test code. Responses contain aggregate scores and counts but not contact details, answer records, correct answers, or explanations.
+
+Each response also includes platform-wide aggregates over finalized student attempts: attempt count, average percentage, pass rate, plus the ten most-attempted subjects and tests with attempt counts, average percentage, and pass rate. These are descriptive aggregates over all stored finalized attempts; no date-window adjustment or risk classification is implied. In-progress attempts are excluded.
+
 ### Admin interface availability
 
-The frontend admin console is available at `/admin/dashboard`. The Users menu provides student search, active/blocked filters, profile details, exam activity, pagination, and block/reactivate actions. Personal student data and user controls are administrator-only. The dashboard and published model-test view use implemented endpoints. Creating a test draft is supported; draft listing and question assignment are not yet available in the admin UI. Other planned admin menu modules are marked as coming soon until their APIs are implemented.
+The frontend admin console is available at `/admin/dashboard`. The Users menu provides student search, active/blocked filters, profile details, exam activity, pagination, and block/reactivate actions. Personal student data and user controls are administrator-only. Model Tests provides a draft/published directory, question assignment from active questions in the test subject, and publishing with server-side validation. Exams provides live/completed/all-attempt views, search, pagination, and safe attempt summaries for admins/editors. Results & Analytics provides a finalized-results directory with subject/test/status/search filters, score summaries, and subject/test performance aggregates. Student-level analytics and suspicious-attempt detection remain unavailable until their rules and screens are implemented.
 
 ## Attempt API
 

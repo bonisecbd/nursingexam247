@@ -13,6 +13,61 @@ use Illuminate\Validation\ValidationException;
 
 class ModelTestController extends Controller
 {
+    public function adminIndex(Request $request): JsonResponse
+    {
+        $this->authorizeContentManagement($request);
+
+        $validated = $request->validate([
+            'search' => ['nullable', 'string', 'max:100'],
+            'subject_id' => ['sometimes', 'integer', 'exists:subjects,id'],
+            'status' => ['sometimes', 'in:all,draft,published'],
+            'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
+        ]);
+
+        $tests = ModelTest::query()
+            ->with('subject:id,name,code')
+            ->withCount('questions')
+            ->when($validated['search'] ?? null, function ($query, string $search): void {
+                $query->where(function ($query) use ($search): void {
+                    $query->where('title', 'like', '%'.$search.'%')
+                        ->orWhere('code', 'like', '%'.$search.'%');
+                });
+            })
+            ->when($validated['subject_id'] ?? null, fn ($query, int $subjectId) => $query->where('subject_id', $subjectId))
+            ->when(($validated['status'] ?? 'all') !== 'all', fn ($query) => $query->where('status', $validated['status']))
+            ->orderByDesc('id')
+            ->paginate($validated['per_page'] ?? 15);
+
+        $counts = ModelTest::query()
+            ->select('status', DB::raw('COUNT(*) as aggregate'))
+            ->groupBy('status')
+            ->pluck('aggregate', 'status');
+
+        return response()->json([
+            'data' => collect($tests->items())->map(fn (ModelTest $test): array => $this->testData($test) + [
+                'assigned_question_count' => $test->questions_count,
+            ])->values(),
+            'meta' => [
+                'total' => $tests->total(),
+                'draft' => (int) ($counts['draft'] ?? 0),
+                'published' => (int) ($counts['published'] ?? 0),
+                'current_page' => $tests->currentPage(),
+                'last_page' => $tests->lastPage(),
+                'per_page' => $tests->perPage(),
+            ],
+        ]);
+    }
+
+    public function adminShow(Request $request, ModelTest $test): JsonResponse
+    {
+        $this->authorizeContentManagement($request);
+        $test->load(['subject:id,name,code', 'questions:id,question_text,options,difficulty,is_active']);
+
+        return response()->json([
+            'test' => $this->testData($test, includeQuestions: true),
+        ]);
+    }
+
     public function index(Request $request): JsonResponse
     {
         $validated = $request->validate([
