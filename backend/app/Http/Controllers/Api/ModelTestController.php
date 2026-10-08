@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\ExamAttempt;
 use App\Models\ModelTest;
 use App\Models\Question;
+use App\Services\SubscriptionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -91,10 +93,17 @@ class ModelTestController extends Controller
         return response()->json($tests);
     }
 
-    public function show(ModelTest $test): JsonResponse
+    public function show(Request $request, ModelTest $test): JsonResponse
     {
         abort_unless($test->status === 'published', 404);
-        abort_if($test->is_premium, 403, 'This premium test requires an active premium subscription.');
+
+        if ($test->is_premium) {
+            $user = $request->user();
+            $allowed = $user !== null
+                && app(SubscriptionService::class)->canAccessTest($user, $test);
+
+            abort_unless($allowed, 403, 'This premium test requires an active premium subscription.');
+        }
 
         $test->load([
             'subject:id,name,code',
@@ -103,6 +112,71 @@ class ModelTestController extends Controller
 
         return response()->json([
             'test' => $this->testData($test, includeQuestions: true),
+        ]);
+    }
+
+    /**
+     * GET /api/tests/{test}/unlock-status
+     *
+     * Sequential unlock rule: the next test in the published sequence stays
+     * locked until the student has completed (submitted or expired) the
+     * previous published test. The first test in the sequence is always open.
+     */
+    public function unlockStatus(Request $request, ModelTest $test): JsonResponse
+    {
+        abort_unless($test->status === 'published', 404);
+
+        $userId = $request->user()->id;
+
+        $completedAttempt = ExamAttempt::query()
+            ->where('user_id', $userId)
+            ->where('test_id', $test->id)
+            ->whereIn('status', ['submitted', 'expired'])
+            ->orderByDesc('finished_at')
+            ->orderByDesc('id')
+            ->first(['id', 'status', 'score', 'percentage', 'finished_at']);
+
+        $completedAttemptData = $completedAttempt === null ? null : [
+            'id' => (int) $completedAttempt->id,
+            'status' => $completedAttempt->status,
+            'score' => (float) $completedAttempt->score,
+            'percentage' => (float) $completedAttempt->percentage,
+            'finished_at' => $completedAttempt->finished_at?->toISOString(),
+        ];
+
+        $previousTest = ModelTest::query()
+            ->where('status', 'published')
+            ->where('id', '<', $test->id)
+            ->orderByDesc('id')
+            ->first(['id', 'title', 'code']);
+
+        $previousCompleted = $previousTest !== null && ExamAttempt::query()
+            ->where('user_id', $userId)
+            ->where('test_id', $previousTest->id)
+            ->whereIn('status', ['submitted', 'expired'])
+            ->exists();
+
+        $locked = $completedAttempt === null && $previousTest !== null && ! $previousCompleted;
+
+        [$code, $reason] = match (true) {
+            $locked => ['previous_test_incomplete', 'Complete "'.$previousTest->title.'" first to unlock this test.'],
+            $completedAttempt !== null => ['completed', 'You have already completed this test.'],
+            $previousTest === null => ['first_in_sequence', 'This is the first test in the sequence, so it is always unlocked.'],
+            default => ['previous_test_completed', 'The previous test is completed, so this test is unlocked.'],
+        };
+
+        return response()->json([
+            'test' => [
+                'id' => $test->id,
+                'title' => $test->title,
+                'code' => $test->code,
+            ],
+            'locked' => $locked,
+            'reason' => $reason,
+            'code' => $code,
+            'required_test' => $locked ? $previousTest : null,
+            'previous_test' => $previousTest,
+            'completed_attempt' => $completedAttemptData,
         ]);
     }
 

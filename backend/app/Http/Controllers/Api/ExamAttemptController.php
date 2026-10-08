@@ -7,6 +7,7 @@ use App\Models\AttemptAnswer;
 use App\Models\ExamAttempt;
 use App\Models\ModelTest;
 use App\Services\GamificationService;
+use App\Services\SubscriptionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -29,7 +30,7 @@ class ExamAttemptController extends Controller
                 ]);
             }
 
-            if ($test->is_premium) {
+            if ($test->is_premium && ! app(SubscriptionService::class)->canAccessTest($request->user(), $test)) {
                 abort(403, 'This premium test requires an active premium subscription.');
             }
 
@@ -54,6 +55,31 @@ class ExamAttemptController extends Controller
                         'test_id' => ['This test contains a question with invalid answer options.'],
                     ]);
                 }
+            }
+
+            // One live attempt per student and test: a double click or a
+            // reconnect resumes the running attempt instead of starting a
+            // second timer, and any stale duplicate is finalized as expired.
+            $liveAttempt = null;
+            $openAttempts = ExamAttempt::query()
+                ->where('user_id', $request->user()->id)
+                ->where('test_id', $test->id)
+                ->where('status', 'in_progress')
+                ->orderByDesc('id')
+                ->get();
+
+            foreach ($openAttempts as $openAttempt) {
+                if ($liveAttempt === null && now()->lessThan($openAttempt->expires_at)) {
+                    $liveAttempt = $openAttempt;
+
+                    continue;
+                }
+
+                $this->finish($openAttempt, 'expired');
+            }
+
+            if ($liveAttempt !== null) {
+                return $liveAttempt;
             }
 
             $startedAt = now();
@@ -81,9 +107,12 @@ class ExamAttemptController extends Controller
             return $attempt;
         });
 
+        $resumed = ! $attempt->wasRecentlyCreated;
+
         return response()->json([
             'attempt' => $this->attemptData($attempt->load(['test:id,title,duration_minutes', 'answers'])),
-        ], 201);
+            'resumed' => $resumed,
+        ], $resumed ? 200 : 201);
     }
 
     public function resume(Request $request, int $attempt): JsonResponse

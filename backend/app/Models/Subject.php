@@ -30,4 +30,9 @@ class Subject extends Model
     {
         return $this->hasMany(ModelTest::class);
     }
+
+    public function topics(): HasMany
+    {
+        return $this->hasMany(Topic::class);
+    }
 }

@@ -147,6 +147,59 @@ class ExamAttemptApiTest extends TestCase
         ]);
     }
 
+    public function test_starting_twice_resumes_the_running_attempt_instead_of_creating_a_duplicate(): void
+    {
+        [$user, $token] = $this->createUserWithToken();
+        $test = $this->createPublishedTest();
+
+        $first = $this->withToken($token)->postJson('/api/attempts', [
+            'test_id' => $test->id,
+        ]);
+        $first->assertCreated()->assertJsonPath('resumed', false);
+        $attemptId = $first->json('attempt.id');
+
+        // A double click or a reconnect must not start a second timer.
+        $second = $this->withToken($token)->postJson('/api/attempts', [
+            'test_id' => $test->id,
+        ]);
+        $second->assertOk()
+            ->assertJsonPath('resumed', true)
+            ->assertJsonPath('attempt.id', $attemptId)
+            ->assertJsonPath('attempt.status', 'in_progress');
+
+        $this->assertSame(1, ExamAttempt::query()
+            ->where('user_id', $user->id)
+            ->where('test_id', $test->id)
+            ->count());
+        $this->assertSame(1, ExamAttempt::query()->where('status', 'in_progress')->count());
+    }
+
+    public function test_a_stale_open_attempt_is_finalized_as_expired_when_the_test_is_started_again(): void
+    {
+        [$user, $token] = $this->createUserWithToken();
+        $test = $this->createPublishedTest();
+        $staleId = $this->withToken($token)->postJson('/api/attempts', [
+            'test_id' => $test->id,
+        ])->assertCreated()->json('attempt.id');
+
+        ExamAttempt::query()->whereKey($staleId)->update([
+            'expires_at' => now()->subSecond(),
+        ]);
+
+        $retry = $this->withToken($token)->postJson('/api/attempts', [
+            'test_id' => $test->id,
+        ]);
+
+        $retry->assertCreated()->assertJsonPath('resumed', false);
+        $this->assertNotSame($staleId, $retry->json('attempt.id'));
+
+        $this->assertDatabaseHas('attempts', ['id' => $staleId, 'status' => 'expired']);
+        $this->assertSame(1, ExamAttempt::query()
+            ->where('user_id', $user->id)
+            ->where('status', 'in_progress')
+            ->count());
+    }
+
     public function test_premium_or_unpublished_test_cannot_be_started(): void
     {
         [, $token] = $this->createUserWithToken();

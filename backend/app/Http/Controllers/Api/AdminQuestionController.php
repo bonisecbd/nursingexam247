@@ -26,6 +26,7 @@ class AdminQuestionController extends Controller
 
         $questions = Question::query()
             ->with('subject:id,name,code')
+            ->with('topic:id,name')
             ->withCount('tests')
             ->withCount(['tests as published_tests_count' => fn ($query) => $query->where('tests.status', 'published')])
             ->when($validated['search'] ?? null, fn ($query, string $search) => $query->where(
@@ -64,12 +65,13 @@ class AdminQuestionController extends Controller
         $validated = $this->validateQuestion($request);
         $this->validateCorrectOption($validated);
         $this->ensureActiveSubject($validated['subject_id']);
+        $this->validateTopic($validated, $validated['subject_id']);
 
         $question = Question::query()->create($validated + [
             'is_active' => true,
             'created_by' => $request->user()->id,
         ]);
-        $question->load('subject:id,name,code')->loadCount('tests')
+        $question->load('subject:id,name,code')->load('topic:id,name')->loadCount('tests')
             ->loadCount(['tests as published_tests_count' => fn ($query) => $query->where('tests.status', 'published')]);
 
         return response()->json([
@@ -92,8 +94,18 @@ class AdminQuestionController extends Controller
         $this->validateCorrectOption($validated, $question);
         $subjectId = $validated['subject_id'] ?? $question->subject_id;
         $this->ensureActiveSubject($subjectId, $question);
+        $this->validateTopic($validated, $subjectId);
+
+        // Moving a question to another subject detaches any topic that belongs
+        // to the previous subject unless a replacement topic is supplied.
+        if (array_key_exists('subject_id', $validated)
+            && $validated['subject_id'] !== $question->subject_id
+            && ! array_key_exists('topic_id', $validated)) {
+            $validated['topic_id'] = null;
+        }
+
         $question->update($validated);
-        $question->load('subject:id,name,code')->loadCount('tests')
+        $question->load('subject:id,name,code')->load('topic:id,name')->loadCount('tests')
             ->loadCount(['tests as published_tests_count' => fn ($query) => $query->where('tests.status', 'published')]);
 
         return response()->json([
@@ -113,6 +125,7 @@ class AdminQuestionController extends Controller
 
         return $request->validate([
             'subject_id' => [$required, 'integer', 'exists:subjects,id'],
+            'topic_id' => ['sometimes', 'nullable', 'integer', 'exists:topics,id'],
             'question_text' => [$required, 'string', 'max:10000'],
             'options' => [$required, 'array', 'min:2', 'max:6'],
             'options.*' => ['required', 'string', 'max:1000'],
@@ -131,6 +144,26 @@ class AdminQuestionController extends Controller
         if ($options !== null && $correctOption !== null && $correctOption > count($options)) {
             throw ValidationException::withMessages([
                 'correct_option' => ['The correct option must refer to one of the supplied options.'],
+            ]);
+        }
+    }
+
+    private function validateTopic(array $validated, int $subjectId): void
+    {
+        $topicId = $validated['topic_id'] ?? null;
+
+        if ($topicId === null) {
+            return;
+        }
+
+        $belongsToSubject = DB::table('topics')
+            ->where('id', $topicId)
+            ->where('subject_id', $subjectId)
+            ->exists();
+
+        if (! $belongsToSubject) {
+            throw ValidationException::withMessages([
+                'topic_id' => ['The topic must belong to the selected subject.'],
             ]);
         }
     }
@@ -154,6 +187,10 @@ class AdminQuestionController extends Controller
                 'id' => $question->subject->id,
                 'name' => $question->subject->name,
                 'code' => $question->subject->code,
+            ] : null,
+            'topic' => $question->topic ? [
+                'id' => $question->topic->id,
+                'name' => $question->topic->name,
             ] : null,
             'question_text' => $question->question_text,
             'options' => $question->options,

@@ -10,6 +10,7 @@ class Question extends Model
 {
     protected $fillable = [
         'subject_id',
+        'topic_id',
         'question_text',
         'options',
         'correct_option',
@@ -31,6 +32,11 @@ class Question extends Model
     public function subject(): BelongsTo
     {
         return $this->belongsTo(Subject::class);
+    }
+
+    public function topic(): BelongsTo
+    {
+        return $this->belongsTo(Topic::class);
     }
 
     public function tests(): BelongsToMany
