@@ -533,7 +533,15 @@ The requirements and proposed endpoint/data contracts for Solutions, Leaderboard
 
 **Implementation status:** Authentication, Profile, Subject, Topics, Model Test, Exam (including idempotent start and sequential test unlock), Result, Leaderboard, Gamification, referral attribution, and student Progress/Analytics APIs are implemented and covered by feature tests. The Coupon, Wallet, Subscription/Premium, and Payment endpoints from modules 12-15 are implemented and specified in [MODULES.md](./MODULES.md). Remaining sections in this blueprint (generic student question CRUD, bulk import) are planned contracts, not a claim that those routes are currently implemented. Confirm the current route registry and code before relying on any endpoint. `MODULES.md` defines the business rules, authorization, validation, and response expectations that an implementation must follow.
 
-API routes are registered in two files: `backend/routes/api.php` and `backend/routes/api_progress.php` (topics, unlock status, analytics), both mounted under the `/api` prefix by `backend/bootstrap/app.php`.
+API routes are registered across five files, all mounted under the `/api` prefix by `backend/bootstrap/app.php`:
+
+| Route file | Contents |
+|---|---|
+| `backend/routes/api.php` | Core modules: auth, profile, subjects, model tests, exams, results, solutions, admin, plus the `/api` route-index registry |
+| `backend/routes/api_progress.php` | Topics, test unlock status, analytics (`overview`/`subjects`/`topics`), leaderboards, gamification, referrals |
+| `backend/routes/api_challenge.php` | Challenge module (16) |
+| `backend/routes/api_notifications.php` | Notification module (17) |
+| `backend/routes/api_settings.php` | Settings module (20) |
 
 ## Error response format
 
