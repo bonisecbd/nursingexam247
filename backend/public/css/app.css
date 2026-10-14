@@ -566,6 +566,19 @@ input[type="file"] { display: none; }
 .lb-row-me td { background: var(--primary-light); }
 .lb-foot { font-size: .82rem; margin-top: 10px; }
 
+/* ---- Notifications ---- */
+.notif-list { display: flex; flex-direction: column; gap: 10px; }
+.notif { display: flex; gap: 14px; align-items: flex-start; }
+.notif-unread { border-left: 3px solid var(--primary); }
+.notif-icon { font-size: 1.4rem; line-height: 1.2; }
+.notif-body { flex: 1; min-width: 0; }
+.notif-title {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    font-weight: 700; font-size: .95rem; margin-bottom: 2px;
+}
+.notif-text { margin: 0 0 4px; font-size: .88rem; color: var(--text-muted); }
+.notif-meta { font-size: .75rem; color: var(--text-light); }
+
 /* ---- Responsive ---- */
 @media (max-width: 1024px) {
     .feature-grid { grid-template-columns: repeat(2, 1fr); }

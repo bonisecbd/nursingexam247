@@ -35,6 +35,7 @@ const App = (() => {
             if (path === '/tests') return pageTests();
             if (path === '/history') return pageHistory();
             if (path === '/leaderboard') return pageLeaderboard();
+            if (path === '/notifications') return pageNotifications();
             if (path === '/profile') return pageProfile();
 
             const examMatch = path.match(/^\/exam\/(\d+)$/);
@@ -407,6 +408,77 @@ const App = (() => {
     }
 
     /* ==========================================================
+       PAGE: Notifications
+       ========================================================== */
+    const notifState = { items: [], page: 1, lastPage: 1, unread: 0, status: null };
+
+    async function pageNotifications() {
+        const qs = new URLSearchParams(location.search);
+        notifState.items = [];
+        notifState.page = 1;
+        notifState.status = qs.get('status') === 'unread' ? 'unread' : null;
+
+        const seq = loading('Loading notifications...');
+        try {
+            const data = await fetchNotifications(1);
+            if (stale(seq)) return;
+            notifState.items = data.data || [];
+            applyNotificationMeta(data);
+            render(Views.notifications(notifState));
+        } catch (e) {
+            if (stale(seq)) return;
+            toast(e.message, 'error');
+            render(Views.notifications(notifState));
+        }
+    }
+
+    function fetchNotifications(page) {
+        const query = new URLSearchParams({ page: String(page), per_page: '20' });
+        if (notifState.status) query.set('status', notifState.status);
+        return API.request('/notifications?' + query.toString());
+    }
+
+    function applyNotificationMeta(data) {
+        const meta = data.meta || {};
+        notifState.page = meta.current_page || 1;
+        notifState.lastPage = meta.last_page || 1;
+        notifState.unread = meta.unread_count || 0;
+    }
+
+    async function loadMoreNotifications() {
+        try {
+            const data = await fetchNotifications(notifState.page + 1);
+            notifState.items = (notifState.items || []).concat(data.data || []);
+            applyNotificationMeta(data);
+            render(Views.notifications(notifState));
+        } catch (e) {
+            toast(e.message, 'error');
+        }
+    }
+
+    async function markNotificationRead(id) {
+        try {
+            const res = await API.request('/notifications/' + id + '/read', { method: 'PATCH' });
+            if (typeof res.unread_count === 'number') notifState.unread = res.unread_count;
+            const item = (notifState.items || []).find(n => (n.id ?? n.notification_id) === id);
+            if (item) { item.status = 'read'; item.read_at = new Date().toISOString(); }
+            render(Views.notifications(notifState));
+        } catch (e) {
+            toast(e.message, 'error');
+        }
+    }
+
+    async function markAllNotificationsRead() {
+        try {
+            const res = await API.request('/notifications/read-all', { method: 'POST' });
+            toast(res.message || 'All notifications marked as read.');
+            pageNotifications();
+        } catch (e) {
+            toast(e.message, 'error');
+        }
+    }
+
+    /* ==========================================================
        PAGE: Profile
        ========================================================== */
     async function pageProfile() {
@@ -470,18 +542,29 @@ const App = (() => {
             }
         });
 
-        // There is no authenticated change-password API — the documented flow is
-        // the emailed reset code. Validate and point the user there (never reload).
+        // Change password via the authenticated endpoint (PATCH /api/auth/password).
         const pwf = document.getElementById('password-form');
-        if (pwf) pwf.addEventListener('submit', (e) => {
+        if (pwf) pwf.addEventListener('submit', async (e) => {
             e.preventDefault();
             const cur = document.getElementById('cur-pass').value;
             const nw = document.getElementById('new-pass').value;
             const cf = document.getElementById('conf-pass').value;
             if (!cur || !nw || !cf) { toast('All password fields are required', 'error'); return; }
             if (nw !== cf) { toast('New passwords do not match', 'error'); return; }
-            toast('Password changes use an emailed reset code — continue on the Forgot Password page.', 'warning');
-            setTimeout(() => navigate('/forgot-password'), 1200);
+            const btn = document.getElementById('password-btn');
+            if (btn) { btn.disabled = true; btn.textContent = 'Changing...'; }
+            try {
+                await API.request('/auth/password', {
+                    method: 'PATCH',
+                    body: { current_password: cur, password: nw, password_confirmation: cf },
+                });
+                pwf.reset();
+                toast('Password changed successfully');
+            } catch (err) {
+                toast(err.message || 'Could not change password', 'error');
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = 'Change Password'; }
+            }
         });
     }
 
@@ -703,6 +786,7 @@ const App = (() => {
         if (page === 'solution' && cfg.param) return pageSolution(cfg.param);
         if (page === 'history') return pageHistory();
         if (page === 'leaderboard') return pageLeaderboard();
+        if (page === 'notifications') return pageNotifications();
         if (page === 'profile') return pageProfile();
 
         route();
@@ -718,6 +802,7 @@ const App = (() => {
         confirmSubmit, filterTests, uploadPhoto,
         loadMoreSolutions,
         toggleLeaderboardOptIn,
+        markNotificationRead, markAllNotificationsRead, loadMoreNotifications,
         route,
     };
 })();

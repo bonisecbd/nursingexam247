@@ -32,6 +32,7 @@ Route::get('/', function () {
             'login' => 'POST /api/auth/login',
             'forgot_password' => 'POST /api/auth/forgot-password',
             'reset_password' => 'POST /api/auth/reset-password',
+            'change_password' => 'PATCH /api/auth/password',
             'profile' => 'GET|PATCH /api/profile',
             'subjects' => 'GET /api/subjects',
             'tests' => 'GET /api/tests',
@@ -98,6 +99,7 @@ Route::prefix('auth')->group(function (): void {
     Route::middleware(AuthenticateApiToken::class)->group(function (): void {
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::get('/me', [AuthController::class, 'me']);
+        Route::patch('/password', [AuthController::class, 'changePassword']);
     });
 });
 

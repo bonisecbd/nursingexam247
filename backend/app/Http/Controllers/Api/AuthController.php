@@ -156,6 +156,34 @@ class AuthController extends Controller
         return response()->json(['message' => 'Password reset successfully.']);
     }
 
+    public function changePassword(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'current_password' => ['required', 'string'],
+            'password' => ['required', 'string', 'min:8', 'confirmed', 'different:current_password'],
+        ]);
+
+        $user = $request->user();
+
+        if (! Hash::check($validated['current_password'], $user->password)) {
+            return response()->json(['message' => 'The current password is incorrect.'], 422);
+        }
+
+        // Keep the caller signed in; revoke every other session's token.
+        $currentToken = $request->attributes->get('api_token');
+
+        DB::transaction(function () use ($user, $currentToken, $validated): void {
+            $user->update([
+                'password' => Hash::make($validated['password']),
+                'remember_token' => Str::random(60),
+            ]);
+
+            $user->apiTokens()->when($currentToken, fn ($query) => $query->whereKeyNot($currentToken->getKey()))->delete();
+        });
+
+        return response()->json(['message' => 'Password changed successfully.']);
+    }
+
     private function tokenResponse(User $user): array
     {
         $plainTextToken = Str::random(64);

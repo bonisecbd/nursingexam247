@@ -32,6 +32,7 @@ const Views = (() => {
                     <a href="/tests" class="${active === 'tests' ? 'active' : ''}">Tests</a>
                     <a href="/history" class="${active === 'history' ? 'active' : ''}">History</a>
                     <a href="/leaderboard" class="${active === 'leaderboard' ? 'active' : ''}">Leaderboard</a>
+                    <a href="/notifications" class="${active === 'notifications' ? 'active' : ''}">Notifications</a>
                 </div>
                 <div class="nav-user" onclick="navigate('/profile')">
                     <div class="avatar">${initial}</div>
@@ -49,6 +50,7 @@ const Views = (() => {
             <a href="/tests" class="${active === 'tests' ? 'active' : ''}">📝 Model Tests</a>
             <a href="/history" class="${active === 'history' ? 'active' : ''}">📜 Attempt History</a>
             <a href="/leaderboard" class="${active === 'leaderboard' ? 'active' : ''}">🏆 Leaderboard</a>
+            <a href="/notifications" class="${active === 'notifications' ? 'active' : ''}">🔔 Notifications</a>
             <div class="section-title">Account</div>
             <a href="/profile" class="${active === 'profile' ? 'active' : ''}">👤 Profile</a>
             <a href="javascript:void(0)" onclick="App.logout()">🚪 Logout</a>
@@ -736,6 +738,65 @@ const Views = (() => {
         </div>`;
     }
 
+    /* ---------- NOTIFICATIONS ---------- */
+    function notifications(state) {
+        const items = Array.isArray(state.items) ? state.items : [];
+        const filter = state.status === 'unread' ? 'unread' : 'all';
+        const unread = num(state.unread);
+        const hasMore = num(state.page) < num(state.lastPage);
+
+        const typeIcons = {
+            announcement: '📢', reward: '🎁', badge: '🏅', result: '📊',
+            reminder: '⏰', offer: '🏷️', account: '👤',
+        };
+
+        function when(iso) {
+            if (!iso) return '';
+            return String(iso).replace('T', ' ').slice(0, 16) + ' (UTC)';
+        }
+
+        const list = items.length ? `
+            <div class="notif-list">
+                ${items.map(n => `
+                <div class="card notif ${n.status === 'unread' ? 'notif-unread' : ''}">
+                    <div class="notif-icon">${typeIcons[n.type] || '🔔'}</div>
+                    <div class="notif-body">
+                        <div class="notif-title">${esc(n.title || 'Notification')}${n.status === 'unread' ? ' <span class="badge badge-info">New</span>' : ''}</div>
+                        ${n.body ? `<p class="notif-text">${esc(n.body)}</p>` : ''}
+                        <div class="notif-meta">${esc(n.type || '')} · ${esc(when(n.created_at))}</div>
+                    </div>
+                    ${n.status === 'unread'
+                        ? `<button class="btn btn-ghost btn-sm" onclick="App.markNotificationRead(${num(n.id)})">Mark read</button>`
+                        : '<span class="badge badge-success">Read</span>'}
+                </div>`).join('')}
+            </div>` : `
+            <div class="card empty-state">
+                <div class="icon">🔔</div>
+                <h3>${filter === 'unread' ? 'No unread notifications' : 'No notifications yet'}</h3>
+                <p>Announcements, rewards and reminders will show up here</p>
+            </div>`;
+
+        return `
+        ${header('notifications')}
+        <div class="layout">
+            ${sidebar('notifications')}
+            <main class="main">
+                <h1 style="font-size:1.6rem;font-weight:800;margin-bottom:4px">🔔 Notifications</h1>
+                <p class="text-muted mb-3">${unread ? unread + ' unread notification' + (unread === 1 ? '' : 's') : 'All caught up — nothing unread'}</p>
+
+                <div class="lb-tabs">
+                    <a class="lb-tab ${filter === 'all' ? 'active' : ''}" href="/notifications">All</a>
+                    <a class="lb-tab ${filter === 'unread' ? 'active' : ''}" href="/notifications?status=unread">Unread</a>
+                    ${unread ? `<button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="App.markAllNotificationsRead()">Mark all as read</button>` : ''}
+                </div>
+
+                ${list}
+
+                ${hasMore ? `<button class="btn btn-outline mt-2" onclick="App.loadMoreNotifications()">Load more</button>` : ''}
+            </main>
+        </div>`;
+    }
+
     /* ---------- PROFILE ---------- */
     function profile(data) {
         const u = data.user || API.user() || {};
@@ -820,12 +881,12 @@ const Views = (() => {
                             <label>Confirm New Password</label>
                             <input type="password" id="conf-pass" class="form-control" placeholder="Repeat password">
                         </div>
-                        <button type="submit" class="btn btn-outline">Update Password</button>
+                        <button type="submit" id="password-btn" class="btn btn-outline">Update Password</button>
                     </form>
                 </div>
             </main>
         </div>`;
     }
 
-    return { header, sidebar, login, register, forgot, dashboard, testsList, examHeader, examBody, questionView, result, solution, solutionItem, history, leaderboard, profile, esc };
+    return { header, sidebar, login, register, forgot, dashboard, testsList, examHeader, examBody, questionView, result, solution, solutionItem, history, leaderboard, notifications, profile, esc };
 })();

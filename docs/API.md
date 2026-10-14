@@ -93,6 +93,20 @@ Sends a six-digit code by email when the account exists. The response is the sam
 
 Resets the password and revokes all existing API tokens for the account.
 
+### Change password
+
+`PATCH /api/auth/password` (authentication required)
+
+```json
+{
+  "current_password": "Password@123",
+  "password": "NewPassword@456",
+  "password_confirmation": "NewPassword@456"
+}
+```
+
+For signed-in users who know their current password. The new password must be at least 8 characters, match the confirmation, and differ from the current password. An incorrect current password returns `422 {"message":"The current password is incorrect."}`. On success the caller's own token stays valid while every other token for the account is revoked.
+
 ## User profile
 
 All profile endpoints require authentication using the token returned by register or login.

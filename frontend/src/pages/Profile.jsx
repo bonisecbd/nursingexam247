@@ -52,6 +52,10 @@ export default function Profile() {
   const [uploading, setUploading] = useState(false)
   const [photoError, setPhotoError] = useState('')
   const [loggingOut, setLoggingOut] = useState(false)
+  const [pwForm, setPwForm] = useState({ current_password: '', password: '', password_confirmation: '' })
+  const [pwErrors, setPwErrors] = useState({})
+  const [pwNotice, setPwNotice] = useState('')
+  const [pwSaving, setPwSaving] = useState(false)
 
   useEffect(() => {
     if (!user) return
@@ -125,6 +129,39 @@ export default function Profile() {
       setPhotoError(error.message)
     } finally {
       setUploading(false)
+    }
+  }
+
+  async function handlePasswordSubmit(event) {
+    event.preventDefault()
+    if (pwSaving) return
+    setPwNotice('')
+    setPwErrors({})
+    if (pwForm.password !== pwForm.password_confirmation) {
+      setPwErrors({ password_confirmation: 'New passwords do not match.' })
+      return
+    }
+    setPwSaving(true)
+    try {
+      const payload = await api.changePassword({
+        current_password: pwForm.current_password,
+        password: pwForm.password,
+        password_confirmation: pwForm.password_confirmation,
+      })
+      setPwForm({ current_password: '', password: '', password_confirmation: '' })
+      setPwNotice(payload.message || 'Password changed successfully.')
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 422) {
+        if (error.message && !Object.keys(error.fieldErrors).length) {
+          setPwErrors({ current_password: error.message })
+        } else {
+          setPwErrors(error.fieldErrors)
+        }
+      } else {
+        setPwErrors({ general: error.message })
+      }
+    } finally {
+      setPwSaving(false)
     }
   }
 
@@ -308,6 +345,80 @@ export default function Profile() {
                 >
                   Reset
                 </button>
+              </div>
+            </form>
+
+            <form className="card account-form" onSubmit={handlePasswordSubmit} noValidate>
+              <div className="card-head">
+                <h2>Change password</h2>
+              </div>
+              {pwNotice && (
+                <div className="alert alert-success" role="status">
+                  <Icon name="check" size={16} /> <span>{pwNotice}</span>
+                </div>
+              )}
+              <div className="form-group">
+                <label htmlFor="pw-current">Current password</label>
+                <input
+                  id="pw-current"
+                  className="form-control"
+                  type="password"
+                  value={pwForm.current_password}
+                  onChange={(event) => {
+                    setPwForm((current) => ({ ...current, current_password: event.target.value }))
+                    setPwErrors({})
+                  }}
+                  autoComplete="current-password"
+                  required
+                />
+                <FieldError message={fieldMessage(pwErrors, 'current_password')} />
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label htmlFor="pw-new">New password</label>
+                  <input
+                    id="pw-new"
+                    className="form-control"
+                    type="password"
+                    value={pwForm.password}
+                    onChange={(event) => {
+                      setPwForm((current) => ({ ...current, password: event.target.value }))
+                      setPwErrors({})
+                    }}
+                    placeholder="Min 8 characters"
+                    autoComplete="new-password"
+                    required
+                  />
+                  <FieldError message={fieldMessage(pwErrors, 'password')} />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="pw-confirm">Confirm new password</label>
+                  <input
+                    id="pw-confirm"
+                    className="form-control"
+                    type="password"
+                    value={pwForm.password_confirmation}
+                    onChange={(event) => {
+                      setPwForm((current) => ({ ...current, password_confirmation: event.target.value }))
+                      setPwErrors({})
+                    }}
+                    placeholder="Repeat password"
+                    autoComplete="new-password"
+                    required
+                  />
+                  <FieldError message={fieldMessage(pwErrors, 'password_confirmation')} />
+                </div>
+              </div>
+              {pwErrors.general && (
+                <div className="alert alert-error" role="alert">
+                  <Icon name="alert" size={16} /> <span>{pwErrors.general}</span>
+                </div>
+              )}
+              <div className="account-actions">
+                <button type="submit" className="btn btn-primary" disabled={pwSaving}>
+                  <Icon name="check" size={16} /> {pwSaving ? 'Changing…' : 'Change password'}
+                </button>
+                <p className="field-hint">Other signed-in devices are signed out after a password change.</p>
               </div>
             </form>
 

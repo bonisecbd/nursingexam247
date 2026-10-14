@@ -184,6 +184,7 @@ export const api = {
   me: () => apiRequest('/auth/me'),
   forgotPassword: (payload) => apiRequest('/auth/forgot-password', { method: 'POST', body: payload }),
   resetPassword: (payload) => apiRequest('/auth/reset-password', { method: 'POST', body: payload }),
+  changePassword: (payload) => apiRequest('/auth/password', { method: 'PATCH', body: payload }),
 
   /* profile */
   profile: () => apiRequest('/profile'),
