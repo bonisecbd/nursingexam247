@@ -524,6 +524,66 @@ Returns only the authenticated inviter's paginated statuses and referral/qualifi
 
 Links the authenticated new account to an active student inviter once, within 24 hours of registration and before starting an exam. Registration can instead include optional `referral_code`; the account and referral attribution are committed atomically. The student dashboard supports redeeming a code during onboarding. Invalid, self, inactive, or already-used codes fail validation. Attribution stays pending; account creation does not issue points, XP, or money. Purchase qualification and rewards are unavailable until the purchase/subscription module defines an approved qualifying event and anti-abuse policy.
 
+## Wallet API
+
+The wallet is an append-only ledger in integer minor units (poisha, `BDT`). Credits are positive, debits negative; the balance is always a server-side projection of the ledger — never a client-settable field. All endpoints are bearer-protected and owner-scoped (another user's transaction returns `404`).
+
+### Balance
+
+`GET /api/wallet` (authentication required)
+
+```json
+{ "wallet": { "currency": "BDT", "balance_minor": 105000 } }
+```
+
+### Statement
+
+`GET /api/wallet/transactions?page=1&per_page=20` (authentication required)
+
+```json
+{
+  "data": [
+    {
+      "id": 3,
+      "type": "credit",
+      "amount_minor": 5000,
+      "balance_after_minor": 105000,
+      "currency": "BDT",
+      "source_type": "challenge",
+      "source_id": 12,
+      "status": "completed",
+      "description": "Daily challenge reward",
+      "created_at": "2026-10-14T11:20:00.000000Z"
+    }
+  ],
+  "meta": { "current_page": 1, "last_page": 1, "per_page": 20, "total": 1 }
+}
+```
+
+`GET /api/wallet/transactions/{transaction}` returns the single transaction object above (owner-scoped; `404` for other users' IDs).
+
+### Top-up (order-based)
+
+`POST /api/wallet/topup` with `{ "amount_minor": 50000 }` (min 100) — creates a **pending top-up order** (`201` with `message` + `order`). The wallet is credited only after a verified payment callback, never from this request.
+
+### Pay an order from the wallet
+
+`POST /api/wallet/spend` with `{ "order_id": 42, "idempotency_key": "user7:order42:1" }`
+
+The amount always comes from the order, never from the client. Debits are atomic under a wallet row lock and can never exceed available funds. Every ledger write carries a unique idempotency key, so a retried spend returns the original result without a second debit:
+
+```json
+{
+  "message": "Order paid from your wallet.",
+  "duplicate": false,
+  "order": { "id": 42, "status": "paid" },
+  "transaction_id": 9,
+  "balance_minor": 55000
+}
+```
+
+A duplicate request returns `200` with `"duplicate": true`; insufficient funds return `422`. One-shot wallet payments of pending top-up orders complete the credit flow. See `backend/tests/Feature/WalletApiTest.php`.
+
 ## Coupons API
 
 Coupons apply validated promotions to subscription-package purchases. All amounts are integer minor units (poisha) in `BDT`; the server always recomputes the discount and payable total — a client-supplied discount or total is never trusted. One coupon per order (stacking is denied), and the actual reservation/redemption happens atomically inside checkout, not on these endpoints.

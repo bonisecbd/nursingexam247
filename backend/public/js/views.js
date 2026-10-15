@@ -34,6 +34,7 @@ const Views = (() => {
                     <a href="/leaderboard" class="${active === 'leaderboard' ? 'active' : ''}">Leaderboard</a>
                     <a href="/notifications" class="${active === 'notifications' ? 'active' : ''}">Notifications</a>
                     <a href="/referrals" class="${active === 'referrals' ? 'active' : ''}">Referrals</a>
+                    <a href="/wallet" class="${active === 'wallet' ? 'active' : ''}">Wallet</a>
                 </div>
                 <div class="nav-user" onclick="navigate('/profile')">
                     <div class="avatar">${initial}</div>
@@ -53,6 +54,7 @@ const Views = (() => {
             <a href="/leaderboard" class="${active === 'leaderboard' ? 'active' : ''}">🏆 Leaderboard</a>
             <a href="/notifications" class="${active === 'notifications' ? 'active' : ''}">🔔 Notifications</a>
             <a href="/referrals" class="${active === 'referrals' ? 'active' : ''}">🤝 Referrals</a>
+            <a href="/wallet" class="${active === 'wallet' ? 'active' : ''}">👛 Wallet</a>
             <div class="section-title">Account</div>
             <a href="/profile" class="${active === 'profile' ? 'active' : ''}">👤 Profile</a>
             <a href="javascript:void(0)" onclick="App.logout()">🚪 Logout</a>
@@ -898,6 +900,79 @@ const Views = (() => {
         </div>`;
     }
 
+    /* ---------- WALLET ---------- */
+    function wallet(state) {
+        const w = (state && state.summary && state.summary.wallet) || {};
+        const txs = Array.isArray(state && state.txs) ? state.txs : [];
+        const meta = (state && state.txsMeta) || {};
+        const currency = w.currency || 'BDT';
+        const balance = num(w.balance_minor);
+
+        function money(minor) {
+            return (Number(minor || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        function when(iso) {
+            return iso ? String(iso).replace('T', ' ').slice(0, 16) + ' (UTC)' : '—';
+        }
+
+        const sourceLabel = (tx) => {
+            const map = { challenge: 'Challenge', reward: 'Reward', topup: 'Top-up', order: 'Order', payment: 'Payment', refund: 'Refund', admin: 'Admin', system: 'System' };
+            return map[tx.source_type] || (tx.source_type || '—') + (tx.source_id ? ' #' + tx.source_id : '');
+        };
+
+        const table = txs.length ? `
+            <div class="card" style="padding:0">
+                <div class="table-wrapper">
+                    <table class="table">
+                        <thead><tr><th>Date</th><th>Description</th><th>Source</th><th>Status</th><th>Amount</th><th>Balance after</th></tr></thead>
+                        <tbody>
+                            ${txs.map(tx => {
+                                const credit = num(tx.amount_minor) >= 0;
+                                return `
+                            <tr>
+                                <td>${esc(when(tx.created_at))}</td>
+                                <td>${esc(tx.description || '—')}</td>
+                                <td>${esc(sourceLabel(tx))}</td>
+                                <td>${tx.status === 'completed' ? '<span class="badge badge-success">Completed</span>' : '<span class="badge badge-warning">' + esc(tx.status || 'pending') + '</span>'}</td>
+                                <td style="font-weight:700;color:${credit ? 'var(--success)' : 'var(--danger)'}">${credit ? '+' : '−'}৳${money(Math.abs(num(tx.amount_minor)))}</td>
+                                <td>৳${money(tx.balance_after_minor)}</td>
+                            </tr>`; }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>` : `
+            <div class="card empty-state">
+                <div class="icon">👛</div>
+                <h3>No transactions yet</h3>
+                <p>Challenge rewards, top-ups and purchases will appear here</p>
+            </div>`;
+
+        return `
+        ${header('wallet')}
+        <div class="layout">
+            ${sidebar('wallet')}
+            <main class="main">
+                <h1 style="font-size:1.6rem;font-weight:800;margin-bottom:4px">👛 Wallet</h1>
+                <p class="text-muted mb-3">Your balance is kept as an auditable ledger — every credit and debit is listed below</p>
+
+                <div class="card lb-me" style="margin-bottom:12px">
+                    <div class="lb-me-info">
+                        <div class="lb-me-label">Available balance</div>
+                        <div style="font-size:1.8rem;font-weight:800">৳${money(balance)} <span style="font-size:.9rem;font-weight:600;color:var(--text-muted)">${esc(currency)}</span></div>
+                        <p class="text-muted" style="margin:6px 0 0;font-size:.85rem">${num(meta.total)} ledger entr${num(meta.total) === 1 ? 'y' : 'ies'} · minor units (poisha) stored server-side</p>
+                    </div>
+                </div>
+
+                <h2 style="font-size:1.1rem;font-weight:700;margin:18px 0 10px">Statement</h2>
+                ${table}
+                ${meta.last_page > meta.current_page ? `<button class="btn btn-outline mt-2" onclick="App.loadMoreWalletTxs()">Load more</button>` : ''}
+
+                <p class="text-muted" style="font-size:.82rem;margin-top:12px">Top-ups are credited after a verified payment. Spending is atomic — a debit can never exceed your balance, and retried requests never double-charge.</p>
+            </main>
+        </div>`;
+    }
+
     /* ---------- PROFILE ---------- */
     function profile(data) {
         const u = data.user || API.user() || {};
@@ -989,5 +1064,5 @@ const Views = (() => {
         </div>`;
     }
 
-    return { header, sidebar, login, register, forgot, dashboard, testsList, examHeader, examBody, questionView, result, solution, solutionItem, history, leaderboard, notifications, referrals, profile, esc };
+    return { header, sidebar, login, register, forgot, dashboard, testsList, examHeader, examBody, questionView, result, solution, solutionItem, history, leaderboard, notifications, referrals, wallet, profile, esc };
 })();

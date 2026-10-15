@@ -37,6 +37,7 @@ const App = (() => {
             if (path === '/leaderboard') return pageLeaderboard();
             if (path === '/notifications') return pageNotifications();
             if (path === '/referrals') return pageReferrals();
+            if (path === '/wallet') return pageWallet();
             if (path === '/profile') return pageProfile();
 
             const examMatch = path.match(/^\/exam\/(\d+)$/);
@@ -563,6 +564,48 @@ const App = (() => {
     }
 
     /* ==========================================================
+       PAGE: Wallet
+       ========================================================== */
+    const walletState = { summary: null, txs: [], txsMeta: {} };
+
+    async function pageWallet() {
+        const seq = loading('Loading wallet...');
+        const [sumRes, txRes] = await Promise.allSettled([
+            API.request('/wallet'),
+            API.request('/wallet/transactions?per_page=20'),
+        ]);
+        if (stale(seq)) return;
+
+        if (sumRes.status === 'rejected') {
+            toast(sumRes.reason.message || 'Could not load your wallet', 'error');
+            render(Views.wallet(walletState));
+            return;
+        }
+
+        walletState.summary = sumRes.value;
+        if (txRes.status === 'fulfilled') {
+            walletState.txs = txRes.value.data || [];
+            walletState.txsMeta = txRes.value.meta || {};
+        } else {
+            toast(txRes.reason.message || 'Could not load your statement', 'error');
+        }
+
+        render(Views.wallet(walletState));
+    }
+
+    async function loadMoreWalletTxs() {
+        try {
+            const page = (walletState.txsMeta.current_page || 1) + 1;
+            const data = await API.request('/wallet/transactions?per_page=20&page=' + page);
+            walletState.txs = (walletState.txs || []).concat(data.data || []);
+            walletState.txsMeta = data.meta || walletState.txsMeta;
+            render(Views.wallet(walletState));
+        } catch (e) {
+            toast(e.message, 'error');
+        }
+    }
+
+    /* ==========================================================
        PAGE: Profile
        ========================================================== */
     async function pageProfile() {
@@ -875,6 +918,7 @@ const App = (() => {
         if (page === 'leaderboard') return pageLeaderboard();
         if (page === 'notifications') return pageNotifications();
         if (page === 'referrals') return pageReferrals();
+        if (page === 'wallet') return pageWallet();
         if (page === 'profile') return pageProfile();
 
         route();
@@ -892,6 +936,7 @@ const App = (() => {
         toggleLeaderboardOptIn,
         markNotificationRead, markAllNotificationsRead, loadMoreNotifications,
         copyReferralLink, loadMoreInvites,
+        loadMoreWalletTxs,
         route,
     };
 })();
