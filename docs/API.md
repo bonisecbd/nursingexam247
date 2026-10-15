@@ -482,7 +482,7 @@ The first submitted completion of each published test earns 5 points and 10 XP b
 
 `GET /api/referrals/me` (active student authentication required)
 
-Creates a cryptographically random, unique referral code on first use and returns the stable code, aggregate invite counts by status, the caller's own attribution (if any), onboarding `can_redeem` state, and `reward_status`. The frontend builds a shareable registration URL from the current site origin and code. Staff and inactive users cannot access referral features.
+Creates a cryptographically random, unique referral code on first use and returns the stable code, aggregate invite counts by status, the caller's own attribution (if any), onboarding `can_redeem` state, and `reward_status` plus a `reward_preview` of the configured amounts. The frontend builds a shareable registration URL from the current site origin and code. Staff and inactive users cannot access referral features.
 
 ```json
 {
@@ -491,12 +491,13 @@ Creates a cryptographically random, unique referral code on first use and return
     "attribution": null,
     "can_redeem": true,
     "counts": { "total": 3, "pending": 2, "qualified": 1, "disqualified": 0 },
-    "reward_status": "unavailable_until_purchase_module"
+    "reward_status": "unavailable_until_purchase_module",
+    "reward_preview": { "points": 100, "wallet_minor": 5000 }
   }
 }
 ```
 
-When the caller was themselves referred, `attribution` is `{ "status": "pending|qualified|disqualified", "referred_at": "...", "qualifying_event": "...", "qualified_at": "..." }` and `can_redeem` becomes `false`. `can_redeem` is `true` only within 24 hours of registration and before the first exam attempt.
+When the caller was themselves referred, `attribution` is `{ "status": "pending|qualified|disqualified", "referred_at": "...", "qualifying_event": "...", "qualified_at": "..." }` and `can_redeem` becomes `false`. `can_redeem` is `true` only within the configured `referral.onboarding_window_hours` (default 24) of registration and before the first exam attempt. The whole programme can be paused with the `referral.enabled` setting (see the Settings API).
 
 ### My invitations
 
@@ -526,7 +527,19 @@ Links the authenticated new account to an active student inviter once, within 24
 
 ## Settings API
 
-Typed operational configuration: `string | integer | boolean` rows with a group, description, and pipe-delimited Laravel validation constraints (for example `min:1|max:480`). Secrets are never stored here. 23 defaults ship across five groups: `site`, `exam`, `scoring`, `leaderboard`, `commerce`.
+Typed operational configuration: `string | integer | boolean` rows with a group, description, and pipe-delimited Laravel validation constraints (for example `min:1|max:480`). Secrets are never stored here. 31 defaults ship across seven groups: `site`, `exam`, `scoring`, `leaderboard`, `commerce`, `referral`, `gamification`.
+
+Several keys are live wiring, not just stored values — they drive module behaviour directly:
+
+| Key | Effect when changed |
+| --- | --- |
+| `referral.enabled` | Kill switch: off → redemption is rejected (`422`) and arriving registration codes are ignored (registration itself still succeeds). |
+| `referral.onboarding_window_hours` | The "still redeemable" window after registration (dashboard `can_redeem` and the redeem rule/message). |
+| `referral.code_length` | Length of newly generated referral codes (existing codes are untouched). |
+| `referral.reward_points`, `referral.reward_wallet_minor` | Published to students as `reward_preview` in the referral dashboard; payout stays policy-gated. |
+| `gamification.enabled` | Master switch: off → test completions award no points, XP, or badges. |
+| `gamification.badges_enabled` | Pauses badge awards while points/XP keep flowing. |
+| `gamification.perfect_test_bonus_points` | Extra points added to the reward-rules amount for a 100% score. |
 
 ### Public allowlist
 

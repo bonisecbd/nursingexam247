@@ -100,8 +100,8 @@ const adminMenu = [
       { id: 'settings-general', label: 'General', page: 'settings-general' },
       { id: 'settings-exam', label: 'Exam Settings', page: 'settings-exam-settings' },
       { id: 'settings-payments', label: 'Payment Settings', page: 'settings-payment-settings' },
-      { id: 'settings-referral', label: 'Referral Settings', page: 'settings-referral-settings', soon: true },
-      { id: 'settings-gamification', label: 'Gamification Settings', page: 'settings-gamification-settings', soon: true },
+      { id: 'settings-referral', label: 'Referral Settings', page: 'settings-referral-settings' },
+      { id: 'settings-gamification', label: 'Gamification Settings', page: 'settings-gamification-settings' },
       { id: 'settings-system', label: 'System Settings', page: 'settings-system-settings' },
     ] },
   ] },
@@ -576,6 +576,8 @@ const SETTINGS_PAGE_GROUPS = {
   'settings-general': ['site'],
   'settings-exam-settings': ['exam', 'scoring'],
   'settings-payment-settings': ['commerce'],
+  'settings-referral-settings': ['referral'],
+  'settings-gamification-settings': ['gamification'],
   'settings-system-settings': ['leaderboard'],
 }
 
@@ -585,6 +587,8 @@ const SETTINGS_GROUP_LABELS = {
   scoring: 'Scoring rules',
   leaderboard: 'Leaderboard',
   commerce: 'Commerce & payments',
+  referral: 'Referral programme',
+  gamification: 'Gamification rewards',
 }
 
 const SETTINGS_PAGE_HEADINGS = {
@@ -592,10 +596,12 @@ const SETTINGS_PAGE_HEADINGS = {
   'settings-general': ['GENERAL', 'General settings', 'Branding, contact details, timezone and locale defaults students see.'],
   'settings-exam-settings': ['EXAMS', 'Exam settings', 'Default duration, question limits, navigation and scoring rules applied to tests.'],
   'settings-payment-settings': ['COMMERCE', 'Payment settings', 'Currency, coupon availability, payment providers and the refund window.'],
+  'settings-referral-settings': ['REFERRALS', 'Referral settings', 'Programme switch, redemption window, code length and the configured reward amounts.'],
+  'settings-gamification-settings': ['GAMIFICATION', 'Gamification settings', 'Master award switch, badge toggle and the perfect-score bonus on top of the reward rules.'],
   'settings-system-settings': ['SYSTEM', 'System settings', 'Leaderboard period defaults and timezone boundaries.'],
 }
 
-const SETTINGS_GROUP_ORDER = ['site', 'exam', 'scoring', 'leaderboard', 'commerce']
+const SETTINGS_GROUP_ORDER = ['site', 'exam', 'scoring', 'leaderboard', 'commerce', 'referral', 'gamification']
 
 function AdminSettings({ token, page, onNotice }) {
   const [result, setResult] = useState(null)
@@ -1689,7 +1695,7 @@ function AdminDashboard({ user, token, onLogout, busy, sessionError, navigateTo 
             <ReferralPanel token={token} />
           ) : activePage === 'coupons' ? (
             <AdminCoupons token={token} onNotice={setNotice} />
-          ) : ['settings', 'settings-general', 'settings-exam-settings', 'settings-payment-settings', 'settings-system-settings'].includes(activePage) ? (
+          ) : ['settings', 'settings-general', 'settings-exam-settings', 'settings-payment-settings', 'settings-referral-settings', 'settings-gamification-settings', 'settings-system-settings'].includes(activePage) ? (
             <AdminSettings token={token} page={activePage} onNotice={setNotice} />
           ) : (
             <section className="admin-coming-page"><span className="admin-coming-icon"><Icon name={selectedItem?.icon || 'settings'} size={27} /></span><span className="eyebrow">PLATFORM MODULE</span><h1>{selectedItem?.label || 'Management'}</h1><p>This section is part of the platform management plan, but its management API and interface are not implemented yet.</p><div className="admin-coming-status"><Icon name="clock" size={16} /> Coming soon — no data or actions are available here yet.</div><button className="button button-outline" onClick={() => selectPage('dashboard')}>Back to dashboard <Icon name="arrow" size={15} /></button></section>

@@ -484,13 +484,14 @@ const App = (() => {
     /* ==========================================================
        PAGE: Referrals
        ========================================================== */
-    const refState = { dashboard: null, invites: [], invitesMeta: {} };
+    const refState = { dashboard: null, invites: [], invitesMeta: {}, public: {} };
 
     async function pageReferrals() {
         const seq = loading('Loading referrals...');
-        const [dashRes, invitesRes] = await Promise.allSettled([
+        const [dashRes, invitesRes, pubRes] = await Promise.allSettled([
             API.request('/referrals/me'),
             API.request('/referrals/me/invites?per_page=15'),
+            API.request('/settings/public'),
         ]);
         if (stale(seq)) return;
 
@@ -501,6 +502,7 @@ const App = (() => {
         }
 
         refState.dashboard = dashRes.value.referral || dashRes.value;
+        refState.public = pubRes.status === 'fulfilled' ? (pubRes.value.settings || {}) : {};
         if (invitesRes.status === 'fulfilled') {
             refState.invites = invitesRes.value.data || [];
             refState.invitesMeta = invitesRes.value.meta || {};

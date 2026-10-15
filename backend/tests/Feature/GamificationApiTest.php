@@ -161,6 +161,65 @@ class GamificationApiTest extends TestCase
             ->assertJsonPath('reward.xp', 20);
     }
 
+    public function test_perfect_test_bonus_and_kill_switch_follow_settings(): void
+    {
+        $this->withoutMiddleware(ThrottleRequests::class);
+        [, $adminToken] = $this->createUserWithToken(['role' => 'admin']);
+
+        $this->withToken($adminToken)->patchJson('/api/admin/settings', [
+            'settings' => ['gamification.perfect_test_bonus_points' => 7],
+            'reason' => 'Launch campaign: reward perfect scores.',
+        ])->assertOk();
+
+        [$student, $token] = $this->createUserWithToken();
+        $test = $this->createPublishedTest();
+        $attemptId = $this->startAttempt($token, $test);
+        $questionId = ExamAttempt::query()->findOrFail($attemptId)->answers()->value('id');
+        $this->withToken($token)->putJson("/api/attempts/{$attemptId}/answers/{$questionId}", [
+            'selected_option' => 1,
+        ])->assertOk();
+
+        // 5 base points + 7 perfect-score bonus.
+        $this->withToken($token)->postJson("/api/attempts/{$attemptId}/submit")
+            ->assertOk()
+            ->assertJsonPath('reward.awarded', true)
+            ->assertJsonPath('reward.points', 12);
+        $this->assertDatabaseHas('point_transactions', [
+            'user_id' => $student->id,
+            'amount' => 12,
+        ]);
+
+        // Master switch off: the next completion receives nothing.
+        $this->withToken($adminToken)->patchJson('/api/admin/settings', [
+            'settings' => ['gamification.enabled' => false],
+            'reason' => 'Pausing rewards during the audit.',
+        ])->assertOk();
+
+        [, $secondToken] = $this->createUserWithToken();
+        $secondTest = $this->createPublishedTest();
+        $secondAttempt = $this->startAttempt($secondToken, $secondTest);
+        $this->withToken($secondToken)->postJson("/api/attempts/{$secondAttempt}/submit")
+            ->assertOk()
+            ->assertJsonPath('reward', null);
+        $this->assertDatabaseCount('xp_events', 1);
+
+        // Badges can be paused independently of points and XP.
+        $this->withToken($adminToken)->patchJson('/api/admin/settings', [
+            'settings' => ['gamification.enabled' => true, 'gamification.badges_enabled' => false],
+            'reason' => 'Rewards back on, badge announcements paused.',
+        ])->assertOk();
+
+        [, $thirdToken] = $this->createUserWithToken();
+        $thirdTest = $this->createPublishedTest();
+        $thirdAttempt = $this->startAttempt($thirdToken, $thirdTest);
+        $this->withToken($thirdToken)->postJson("/api/attempts/{$thirdAttempt}/submit")
+            ->assertOk()
+            ->assertJsonPath('reward.awarded', true)
+            ->assertJsonPath('reward.new_badges', []);
+        // Only the first student's two badges exist; the third completion earned none.
+        $this->assertDatabaseCount('user_badges', 2);
+    }
+
     private function createUserWithToken(array $attributes = []): array
     {
         $user = User::factory()->create($attributes);

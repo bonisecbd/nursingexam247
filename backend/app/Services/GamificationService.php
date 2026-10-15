@@ -17,6 +17,11 @@ class GamificationService
             return null;
         }
 
+        $featureSettings = app(SettingService::class);
+        if (! $featureSettings->getBool('gamification.enabled', true)) {
+            return null; // Master switch off: no points, XP or badges for this completion.
+        }
+
         $test = $attempt->test()->firstOrFail();
         $user = User::query()->lockForUpdate()->findOrFail($attempt->user_id);
         if ($user->role !== 'student' || ! $user->is_active || $test->status !== 'published') {
@@ -42,13 +47,17 @@ class GamificationService
         }
 
         $description = 'First completion of '.$test->title;
+        $points = (int) $settings->points_per_test;
+        if ($attempt->percentage >= 100) {
+            $points += (int) $featureSettings->getInt('gamification.perfect_test_bonus_points', 0);
+        }
         DB::table('point_transactions')->insert([
             'user_id' => $user->id,
             'source_type' => $sourceType,
             'source_id' => $sourceId,
             'reward_type' => $rewardType,
             'idempotency_key' => $idempotencyKey,
-            'amount' => $settings->points_per_test,
+            'amount' => $points,
             'description' => $description,
             'created_at' => now(),
         ]);
@@ -69,11 +78,13 @@ class GamificationService
             ->where('amount', '>', 0)
             ->count();
 
-        $newBadges = $this->awardEligibleBadges($user->id, $attempt, $completedTests);
+        $newBadges = $featureSettings->getBool('gamification.badges_enabled', true)
+            ? $this->awardEligibleBadges($user->id, $attempt, $completedTests)
+            : [];
 
         return [
             'awarded' => true,
-            'points' => (int) $settings->points_per_test,
+            'points' => $points,
             'xp' => (int) $settings->xp_per_test,
             'new_badges' => $newBadges,
         ];

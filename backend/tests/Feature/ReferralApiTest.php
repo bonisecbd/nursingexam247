@@ -166,6 +166,68 @@ class ReferralApiTest extends TestCase
         $this->assertDatabaseMissing('users', ['email' => 'invalid-ref@example.com']);
     }
 
+    public function test_referral_kill_switch_blocks_redemption_but_lets_registration_pass(): void
+    {
+        [, $adminToken] = $this->createUserWithToken(['role' => 'admin']);
+        [, $inviterToken] = $this->createUserWithToken();
+        $code = $this->withToken($inviterToken)->getJson('/api/referrals/me')->json('referral.code');
+
+        $this->withToken($adminToken)->patchJson('/api/admin/settings', [
+            'settings' => ['referral.enabled' => false],
+            'reason' => 'Temporary pause of the referral programme.',
+        ])->assertOk()->assertJsonPath('message', 'Settings updated.');
+
+        // Explicit redemption is rejected while the programme is paused.
+        [, $inviteeToken] = $this->createUserWithToken();
+        $this->withToken($inviteeToken)->postJson('/api/referrals/redeem', ['code' => $code])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('code');
+        $this->assertDatabaseCount('referrals', 0);
+
+        // Registration with an arriving code still succeeds, but records no attribution.
+        $registration = $this->postJson('/api/auth/register', [
+            'name' => 'Paused Referral Student',
+            'email' => 'paused-ref@example.com',
+            'password' => 'Password@123',
+            'password_confirmation' => 'Password@123',
+            'referral_code' => $code,
+        ])->assertCreated();
+        $this->assertDatabaseMissing('referrals', ['invitee_id' => $registration->json('user.id')]);
+    }
+
+    public function test_onboarding_window_and_code_length_follow_settings(): void
+    {
+        [, $adminToken] = $this->createUserWithToken(['role' => 'admin']);
+
+        $this->withToken($adminToken)->patchJson('/api/admin/settings', [
+            'settings' => ['referral.code_length' => 12, 'referral.onboarding_window_hours' => 1],
+            'reason' => 'Shorter codes and a one-hour redemption window.',
+        ])->assertOk();
+
+        // Newly generated codes honour the configured length.
+        [$inviter, $inviterToken] = $this->createUserWithToken();
+        $code = $this->withToken($inviterToken)->getJson('/api/referrals/me')->json('referral.code');
+        $this->assertSame(12, strlen($code));
+
+        // An invitee created before the configured window cannot redeem.
+        [$lateInvitee, $lateToken] = $this->createUserWithToken();
+        DB::table('users')->where('id', $lateInvitee->id)->update(['created_at' => now()->subHours(2)]);
+        $this->withToken($lateToken)->postJson('/api/referrals/redeem', ['code' => $code])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('code');
+
+        // A fresh invitee inside the window can still redeem.
+        [, $freshToken] = $this->createUserWithToken();
+        $this->withToken($freshToken)->postJson('/api/referrals/redeem', ['code' => $code])->assertCreated();
+
+        // The dashboard publishes the configured reward preview.
+        $this->withToken($inviterToken)->getJson('/api/referrals/me')
+            ->assertOk()
+            ->assertJsonPath('referral.reward_preview.points', 100)
+            ->assertJsonPath('referral.reward_preview.wallet_minor', 5000);
+        $this->assertNotNull($inviter->fresh());
+    }
+
     private function createUserWithToken(array $attributes = []): array
     {
         $user = User::factory()->create($attributes);

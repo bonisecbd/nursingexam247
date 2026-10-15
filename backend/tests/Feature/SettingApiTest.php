@@ -71,7 +71,7 @@ class SettingApiTest extends TestCase
             ->assertOk()
             ->json('settings');
 
-        $this->assertCount(23, $settings);
+        $this->assertCount(31, $settings);
 
         $byKey = collect($settings)->keyBy('key');
 

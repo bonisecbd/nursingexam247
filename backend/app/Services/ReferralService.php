@@ -21,7 +21,7 @@ class ReferralService
             ->where('invitee_id', $user->id)
             ->first(['status', 'created_at', 'qualifying_event', 'qualified_at']);
         $canRedeem = ! $attribution
-            && now()->lessThanOrEqualTo($user->created_at->addHours(self::ONBOARDING_WINDOW_HOURS))
+            && now()->lessThanOrEqualTo($user->created_at->addHours($this->onboardingWindowHours()))
             && ! ExamAttempt::query()->where('user_id', $user->id)->exists();
         $counts = DB::table('referrals')
             ->where('inviter_id', $user->id)
@@ -49,6 +49,10 @@ class ReferralService
                 'disqualified' => (int) $counts->disqualified,
             ],
             'reward_status' => 'unavailable_until_purchase_module',
+            'reward_preview' => [
+                'points' => (int) app(SettingService::class)->getInt('referral.reward_points', 100),
+                'wallet_minor' => (int) app(SettingService::class)->getInt('referral.reward_wallet_minor', 5000),
+            ],
         ];
     }
 
@@ -83,11 +87,21 @@ class ReferralService
 
     public function attributeAtRegistration(User $invitee, string $code): void
     {
+        if (! $this->referralsEnabled()) {
+            return; // Referrals disabled: ignore the arriving code without failing registration.
+        }
+
         $this->attribute($invitee, $code, false);
     }
 
     public function redeemDuringOnboarding(User $invitee, string $code): void
     {
+        if (! $this->referralsEnabled()) {
+            throw ValidationException::withMessages([
+                'code' => ['Referral codes are currently disabled.'],
+            ]);
+        }
+
         $this->attribute($invitee, $code, true);
     }
 
@@ -104,11 +118,12 @@ class ReferralService
             }
 
             if ($checkOnboarding) {
-                $deadline = $invitee->created_at->addHours(self::ONBOARDING_WINDOW_HOURS);
+                $windowHours = $this->onboardingWindowHours();
+                $deadline = $invitee->created_at->addHours($windowHours);
                 $hasAttempt = ExamAttempt::query()->where('user_id', $invitee->id)->exists();
                 if (now()->greaterThan($deadline) || $hasAttempt) {
                     throw ValidationException::withMessages([
-                        'code' => ['Referral codes can only be added within 24 hours of registration and before starting a test.'],
+                        'code' => ["Referral codes can only be added within {$windowHours} hours of registration and before starting a test."],
                     ]);
                 }
             }
@@ -153,7 +168,7 @@ class ReferralService
             }
 
             do {
-                $code = Str::upper(Str::random(16));
+                $code = Str::upper(Str::random($this->codeLength()));
             } while (DB::table('referral_codes')->where('code', $code)->exists());
 
             DB::table('referral_codes')->insert([
@@ -173,5 +188,20 @@ class ReferralService
         if ($user->role !== 'student' || ! $user->is_active) {
             abort(403, 'Referral features are available to active student accounts only.');
         }
+    }
+
+    private function referralsEnabled(): bool
+    {
+        return (bool) app(SettingService::class)->getBool('referral.enabled', true);
+    }
+
+    private function onboardingWindowHours(): int
+    {
+        return max(1, min(720, (int) app(SettingService::class)->getInt('referral.onboarding_window_hours', self::ONBOARDING_WINDOW_HOURS)));
+    }
+
+    private function codeLength(): int
+    {
+        return max(8, min(32, (int) app(SettingService::class)->getInt('referral.code_length', 16)));
     }
 }

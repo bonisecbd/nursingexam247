@@ -816,6 +816,14 @@ const Views = (() => {
         const meta = (state && state.invitesMeta) || {};
         const code = d.code || '';
         const shareUrl = code ? location.origin + '/register?ref=' + encodeURIComponent(code) : '';
+        const pub = (state && state.public) || {};
+        const windowHours = num(pub['referral.onboarding_window_hours']) || 24;
+        const programEnabled = pub['referral.enabled'] !== false;
+        const reward = d.reward_preview || null;
+
+        function money(minor) {
+            return (Number(minor || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
 
         const statusBadge = (status) => {
             if (status === 'qualified') return '<span class="badge badge-success">Qualified</span>';
@@ -827,21 +835,34 @@ const Views = (() => {
             return iso ? String(iso).replace('T', ' ').slice(0, 16) + ' (UTC)' : '—';
         }
 
-        const redeemCard = d.can_redeem ? `
+        const rewardNote = reward ? `
+                <p class="text-muted" style="margin:10px 0 0;font-size:.85rem">Each qualified invite earns <strong>${num(reward.points)} points</strong> + <strong>৳${money(reward.wallet_minor)}</strong> once the reward policy goes live</p>` : '';
+
+        const redeemCard = !programEnabled ? `
+            <div class="card">
+                <div class="card-header"><span class="card-title">🎁 Referral programme</span></div>
+                <p class="text-muted" style="margin:0">New referral codes are not being accepted right now — check back soon!</p>
+            </div>` : d.can_redeem ? `
             <div class="card">
                 <div class="card-header"><span class="card-title">🎁 Have a referral code?</span></div>
-                <p class="text-muted" style="margin-top:0">Enter a friend's code within 24 hours of registering and before your first test. It links to your account and stays pending until qualification.</p>
+                <p class="text-muted" style="margin-top:0">Enter a friend's code within ${num(windowHours)} hours of registering and before your first test. It links to your account and stays pending until qualification.</p>
                 <form id="redeem-form" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
                     <div class="form-group" style="flex:1;min-width:200px;margin:0">
-                        <input type="text" id="redeem-code" class="form-control" placeholder="e.g. ABC123" maxlength="24" pattern="[A-Za-z0-9]+" required>
+                        <input type="text" id="redeem-code" class="form-control" placeholder="e.g. ABC123" maxlength="32" pattern="[A-Za-z0-9]+" required>
                     </div>
                     <button type="submit" class="btn btn-primary">Apply code</button>
                 </form>
+                ${rewardNote}
             </div>` : attribution ? `
             <div class="card">
                 <div class="card-header"><span class="card-title">🎁 Referral attribution</span></div>
                 <p style="margin:0">Joined with a referral — ${statusBadge(attribution.status)} <span class="text-muted">(referred ${esc(when(attribution.referred_at))}${attribution.qualifying_event ? ' · event: ' + esc(attribution.qualifying_event) : ''})</span></p>
-            </div>` : '';
+                ${rewardNote}
+            </div>` : (rewardNote ? `
+            <div class="card">
+                <div class="card-header"><span class="card-title">🎁 Referral rewards</span></div>
+                ${rewardNote}
+            </div>` : '');
 
         const table = invites.length ? `
             <div class="card" style="padding:0">
