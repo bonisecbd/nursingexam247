@@ -524,6 +524,82 @@ Returns only the authenticated inviter's paginated statuses and referral/qualifi
 
 Links the authenticated new account to an active student inviter once, within 24 hours of registration and before starting an exam. Registration can instead include optional `referral_code`; the account and referral attribution are committed atomically. The student dashboard supports redeeming a code during onboarding. Invalid, self, inactive, or already-used codes fail validation. Attribution stays pending; account creation does not issue points, XP, or money. Purchase qualification and rewards are unavailable until the purchase/subscription module defines an approved qualifying event and anti-abuse policy.
 
+## Settings API
+
+Typed operational configuration: `string | integer | boolean` rows with a group, description, and pipe-delimited Laravel validation constraints (for example `min:1|max:480`). Secrets are never stored here. 23 defaults ship across five groups: `site`, `exam`, `scoring`, `leaderboard`, `commerce`.
+
+### Public allowlist
+
+`GET /api/settings/public` — no authentication required. Returns only `is_public` settings as a flat key → typed-value map:
+
+```json
+{
+  "settings": {
+    "site.display_name": "NurseExam247",
+    "site.timezone": "Asia/Dhaka",
+    "exam.default_duration_minutes": 30,
+    "scoring.passing_score": 60,
+    "commerce.coupons_enabled": true
+  }
+}
+```
+
+### Admin read
+
+`GET /api/admin/settings` (authentication required, `admin` role — others get `403`):
+
+```json
+{
+  "settings": [
+    {
+      "key": "scoring.passing_score",
+      "value": 60,
+      "type": "integer",
+      "group": "scoring",
+      "is_public": true,
+      "description": "Passing threshold on the configured score scale; must not exceed the scale.",
+      "constraints": "min:0|max:1000",
+      "updated_by": 1,
+      "updated_at": "2026-10-14T10:00:00.000000Z"
+    }
+  ],
+  "groups": ["commerce", "exam", "leaderboard", "scoring", "site"]
+}
+```
+
+Reads are cached until an update invalidates the cache.
+
+### Admin update
+
+`PATCH /api/admin/settings` with a partial map and a mandatory audit reason (3–500 chars, `admin` role):
+
+```json
+{
+  "settings": { "scoring.passing_score": 70, "exam.autosave_interval_seconds": 60 },
+  "reason": "Align thresholds with the October exam policy"
+}
+```
+
+```json
+{
+  "message": "Settings updated.",
+  "changed": [
+    { "key": "scoring.passing_score", "old": 60, "new": 70 },
+    { "key": "exam.autosave_interval_seconds", "old": 30, "new": 60 }
+  ],
+  "settings": [ "...full admin index as above..." ]
+}
+```
+
+Rules enforced server-side:
+
+- **Unknown keys → `422`** (`settings.<key>` = "Unknown setting key."); only known keys with a matching declared type are accepted, then the stored constraints are applied to the value.
+- **Cross-field invariants** are checked against the merged resulting state: `scoring.passing_score` must not exceed `scoring.pass_scale`, and `scoring.negative_penalty_points` must be non-negative.
+- **No-op writes are skipped** — unchanged values are neither updated nor audited; `"message": "No settings changed."` with an empty `changed` array.
+- Every changed key writes a **`setting_audits` row** (actor, key, old/new value, reason) in the same transaction, then the cache is invalidated.
+
+See `backend/tests/Feature/SettingApiTest.php`.
+
 ## Subscription API
 
 Premium access is granted only by a verified payment — checkout itself never activates anything. Balances/orders are integer minor units (poisha).

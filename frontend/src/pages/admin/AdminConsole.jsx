@@ -96,7 +96,14 @@ const adminMenu = [
     { id: 'advertising', label: 'Advertisement', icon: 'megaphone', soon: true, children: ['Banners', 'Ads', 'Campaigns'] },
     { id: 'support', label: 'Support', icon: 'heart', soon: true, children: ['Tickets', 'User Complaints', 'FAQ'] },
     { id: 'security', label: 'Admin & Security', icon: 'shield', soon: true, children: ['Admin Users', 'Roles', 'Permissions', 'Login History', 'Audit Logs'] },
-    { id: 'settings', label: 'Settings', icon: 'settings', soon: true, children: ['General', 'Exam Settings', 'Payment Settings', 'Referral Settings', 'Gamification Settings', 'System Settings'] },
+    { id: 'settings', label: 'Settings', icon: 'settings', children: [
+      { id: 'settings-general', label: 'General', page: 'settings-general' },
+      { id: 'settings-exam', label: 'Exam Settings', page: 'settings-exam-settings' },
+      { id: 'settings-payments', label: 'Payment Settings', page: 'settings-payment-settings' },
+      { id: 'settings-referral', label: 'Referral Settings', page: 'settings-referral-settings', soon: true },
+      { id: 'settings-gamification', label: 'Gamification Settings', page: 'settings-gamification-settings', soon: true },
+      { id: 'settings-system', label: 'System Settings', page: 'settings-system-settings' },
+    ] },
   ] },
 ]
 
@@ -560,6 +567,204 @@ function AdminCoupons({ token, onNotice }) {
           </form>
         </section>
       </div>}
+    </section>
+  )
+}
+
+const SETTINGS_PAGE_GROUPS = {
+  'settings': null, // every group
+  'settings-general': ['site'],
+  'settings-exam-settings': ['exam', 'scoring'],
+  'settings-payment-settings': ['commerce'],
+  'settings-system-settings': ['leaderboard'],
+}
+
+const SETTINGS_GROUP_LABELS = {
+  site: 'Site & general',
+  exam: 'Exam behaviour',
+  scoring: 'Scoring rules',
+  leaderboard: 'Leaderboard',
+  commerce: 'Commerce & payments',
+}
+
+const SETTINGS_PAGE_HEADINGS = {
+  'settings': ['PLATFORM SETTINGS', 'Settings', 'Operational configuration for the whole platform. Every change is typed, constraint-checked server-side and stored with an audit reason.'],
+  'settings-general': ['GENERAL', 'General settings', 'Branding, contact details, timezone and locale defaults students see.'],
+  'settings-exam-settings': ['EXAMS', 'Exam settings', 'Default duration, question limits, navigation and scoring rules applied to tests.'],
+  'settings-payment-settings': ['COMMERCE', 'Payment settings', 'Currency, coupon availability, payment providers and the refund window.'],
+  'settings-system-settings': ['SYSTEM', 'System settings', 'Leaderboard period defaults and timezone boundaries.'],
+}
+
+const SETTINGS_GROUP_ORDER = ['site', 'exam', 'scoring', 'leaderboard', 'commerce']
+
+function AdminSettings({ token, page, onNotice }) {
+  const [result, setResult] = useState(null)
+  const [draft, setDraft] = useState({})
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [formError, setFormError] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
+  const requestKey = `${page}:${reloadKey}`
+
+  useEffect(() => {
+    let active = true
+    apiRequest('/admin/settings', { token })
+      .then((data) => {
+        if (!active) return
+        setResult({ key: requestKey, data })
+        setDraft({})
+        setReason('')
+        setFormError('')
+      })
+      .catch((requestError) => { if (active) setResult({ key: requestKey, error: requestError.message }) })
+
+    return () => { active = false }
+  }, [requestKey, token])
+
+  const currentResult = result?.key === requestKey ? result : null
+  const settings = currentResult?.data?.settings || []
+  const loading = !currentResult
+  const loadError = currentResult?.error || ''
+  const scope = SETTINGS_PAGE_GROUPS[page]
+  const visible = scope === null || scope === undefined ? settings : settings.filter((setting) => scope.includes(setting.group))
+  const changedKeys = Object.keys(draft)
+
+  function setValue(setting, nextValue) {
+    setDraft((current) => {
+      const copy = { ...current }
+      const unchanged = nextValue === setting.value
+        || (nextValue === '' && setting.value === null)
+        || (nextValue === '' && setting.value === undefined)
+      if (unchanged) delete copy[setting.key]
+      else copy[setting.key] = nextValue
+      return copy
+    })
+  }
+
+  async function save(event) {
+    event.preventDefault()
+    setFormError('')
+    if (changedKeys.length === 0) return
+    const trimmedReason = reason.trim()
+    if (trimmedReason.length < 3) {
+      setFormError('An audit reason of at least 3 characters is required.')
+      return
+    }
+    setBusy(true)
+    try {
+      const response = await apiRequest('/admin/settings', {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({ settings: draft, reason: trimmedReason }),
+      })
+      onNotice(response.message)
+      setReloadKey((value) => value + 1)
+    } catch (requestError) {
+      setFormError(requestError.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const when = (iso) => (iso ? new Date(iso).toLocaleString() : '—')
+  const heading = SETTINGS_PAGE_HEADINGS[page] || SETTINGS_PAGE_HEADINGS['settings']
+  const presentGroups = SETTINGS_GROUP_ORDER.filter((group) => visible.some((setting) => setting.group === group))
+
+  function renderControl(setting) {
+    const value = draft[setting.key] !== undefined ? draft[setting.key] : setting.value
+    const inOptions = (setting.constraints || '').match(/(?:^|\|)in:([^|]+)/)
+    if (setting.type === 'boolean') {
+      return (
+        <label className="admin-checkbox-label">
+          <input type="checkbox" checked={value === true} onChange={(event) => setValue(setting, event.target.checked)} />
+          {value === true ? 'Enabled' : 'Disabled'}
+        </label>
+      )
+    }
+    if (inOptions) {
+      return (
+        <select value={value === null || value === undefined ? '' : String(value)} onChange={(event) => setValue(setting, event.target.value)}>
+          {inOptions[1].split(',').map((option) => <option key={option} value={option}>{option}</option>)}
+        </select>
+      )
+    }
+    if (setting.type === 'integer') {
+      const minMatch = (setting.constraints || '').match(/(?:^|\|)min:(-?\d+)/)
+      const maxMatch = (setting.constraints || '').match(/(?:^|\|)max:(\d+)/)
+      return (
+        <input
+          type="number"
+          value={value === null || value === undefined ? '' : String(value)}
+          min={minMatch ? minMatch[1] : undefined}
+          max={maxMatch ? maxMatch[1] : undefined}
+          onChange={(event) => setValue(setting, event.target.value === '' ? '' : Number(event.target.value))}
+        />
+      )
+    }
+    return (
+      <input
+        type="text"
+        value={value === null || value === undefined ? '' : String(value)}
+        maxLength={255}
+        onChange={(event) => setValue(setting, event.target.value)}
+      />
+    )
+  }
+
+  return (
+    <section className="admin-module-page admin-settings-page">
+      <div className="admin-page-heading">
+        <div><span className="eyebrow">{heading[0]}</span><h1>{heading[1]}</h1><p>{heading[2]}</p></div>
+      </div>
+      <div className="admin-module-stats admin-users-stats">
+        <span><b>{visible.length}</b> settings in view</span>
+        <span><b>{changedKeys.length}</b> unsaved change{changedKeys.length === 1 ? '' : 's'}</span>
+      </div>
+      {loadError && <div className="form-error dashboard-error" role="alert">{loadError}</div>}
+      {loading ? <div className="dashboard-loading">Loading settings…</div> : presentGroups.map((group) => (
+        <section className="admin-panel" key={group}>
+          <div className="admin-users-toolbar">
+            <div><span className="eyebrow">SETTINGS GROUP</span><h2>{SETTINGS_GROUP_LABELS[group] || group}</h2></div>
+          </div>
+          <div className="admin-user-table-wrap"><table className="admin-subject-table">
+            <thead><tr><th>Setting</th><th>Value</th><th>Validation rules</th><th>Visibility</th></tr></thead>
+            <tbody>{visible.filter((setting) => setting.group === group).map((setting) => {
+              const isChanged = draft[setting.key] !== undefined
+              return (
+                <tr key={setting.key} className={isChanged ? 'admin-settings-row-changed' : undefined}>
+                  <td><b>{setting.description}</b><small><code>{setting.key}</code> · {setting.type} · updated {when(setting.updated_at)}</small></td>
+                  <td>
+                    {renderControl(setting)}
+                    {isChanged ? <small className="admin-settings-old">was: {String(setting.value ?? '—')}</small> : null}
+                  </td>
+                  <td><code>{setting.constraints || '—'}</code></td>
+                  <td>{setting.is_public
+                    ? <span className="admin-user-status is-active">public</span>
+                    : <span className="admin-user-status">private</span>}</td>
+                </tr>
+              )
+            })}</tbody>
+          </table></div>
+        </section>
+      ))}
+      {changedKeys.length > 0 && (
+        <section className="admin-panel admin-settings-save">
+          <form onSubmit={save}>
+            <span className="eyebrow">AUDIT TRAIL</span>
+            <h2>Save {changedKeys.length} change{changedKeys.length === 1 ? '' : 's'}</h2>
+            <p className="admin-settings-changed-list">{changedKeys.map((key) => <code key={key}>{key}</code>)}</p>
+            <label>Reason for the change (stored in the audit log)
+              <input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="e.g. Align passing score with October exam policy" maxLength={500} />
+            </label>
+            {formError && <div className="form-error" role="alert">{formError}</div>}
+            <div className="admin-form-row admin-settings-actions">
+              <button type="button" className="button button-outline" disabled={busy} onClick={() => { setDraft({}); setReason(''); setFormError('') }}>Discard</button>
+              <button type="submit" className="button button-primary" disabled={busy || reason.trim().length < 3}>{busy ? 'Saving…' : 'Save changes'}</button>
+            </div>
+          </form>
+        </section>
+      )}
+      <p className="admin-data-note"><Icon name="shield" size={15} /> Every update is validated against the row's declared type and stored constraints, cross-field invariants included, then recorded in the settings audit log with your account and reason.</p>
     </section>
   )
 }
@@ -1484,6 +1689,8 @@ function AdminDashboard({ user, token, onLogout, busy, sessionError, navigateTo 
             <ReferralPanel token={token} />
           ) : activePage === 'coupons' ? (
             <AdminCoupons token={token} onNotice={setNotice} />
+          ) : ['settings', 'settings-general', 'settings-exam-settings', 'settings-payment-settings', 'settings-system-settings'].includes(activePage) ? (
+            <AdminSettings token={token} page={activePage} onNotice={setNotice} />
           ) : (
             <section className="admin-coming-page"><span className="admin-coming-icon"><Icon name={selectedItem?.icon || 'settings'} size={27} /></span><span className="eyebrow">PLATFORM MODULE</span><h1>{selectedItem?.label || 'Management'}</h1><p>This section is part of the platform management plan, but its management API and interface are not implemented yet.</p><div className="admin-coming-status"><Icon name="clock" size={16} /> Coming soon — no data or actions are available here yet.</div><button className="button button-outline" onClick={() => selectPage('dashboard')}>Back to dashboard <Icon name="arrow" size={15} /></button></section>
           )}
