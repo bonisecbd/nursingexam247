@@ -19,6 +19,7 @@ Route::get('/leaderboard', fn () => view('app', ['boot' => 'leaderboard']));
 Route::get('/notifications', fn () => view('app', ['boot' => 'notifications']));
 Route::get('/referrals', fn () => view('app', ['boot' => 'referrals']));
 Route::get('/wallet', fn () => view('app', ['boot' => 'wallet']));
+Route::get('/premium', fn () => view('app', ['boot' => 'premium']));
 Route::get('/profile', fn () => view('app', ['boot' => 'profile']));
 
 Route::get('/up', fn () => response()->json(['status' => 'ok']));

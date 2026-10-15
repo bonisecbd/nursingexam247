@@ -38,6 +38,7 @@ const App = (() => {
             if (path === '/notifications') return pageNotifications();
             if (path === '/referrals') return pageReferrals();
             if (path === '/wallet') return pageWallet();
+            if (path === '/premium') return pagePremium();
             if (path === '/profile') return pageProfile();
 
             const examMatch = path.match(/^\/exam\/(\d+)$/);
@@ -606,6 +607,62 @@ const App = (() => {
     }
 
     /* ==========================================================
+       PAGE: Premium / Subscriptions
+       ========================================================== */
+    const premiumState = { packages: [], mine: {} };
+
+    async function pagePremium() {
+        const seq = loading('Loading premium...');
+        const [pkgRes, meRes] = await Promise.allSettled([
+            API.request('/subscription-packages'),
+            API.request('/subscriptions/me'),
+        ]);
+        if (stale(seq)) return;
+
+        premiumState.packages = pkgRes.status === 'fulfilled' ? ((pkgRes.value.data) || []) : [];
+        premiumState.mine = meRes.status === 'fulfilled' ? meRes.value : {};
+
+        if (pkgRes.status === 'rejected') toast(pkgRes.reason.message || 'Could not load packages', 'error');
+        if (meRes.status === 'rejected') toast(meRes.reason.message || 'Could not load your subscriptions', 'error');
+
+        render(Views.premium(premiumState));
+    }
+
+    // Full purchase loop: checkout (server-priced, optional coupon) → pay from wallet.
+    async function buyPackage(packageId) {
+        const btn = document.getElementById('buy-' + packageId);
+        const couponEl = document.getElementById('coupon-' + packageId);
+        const coupon = couponEl ? couponEl.value.trim() : '';
+        if (btn) { btn.disabled = true; btn.textContent = 'Processing...'; }
+        try {
+            const body = { package_id: packageId };
+            if (coupon) body.coupon_code = coupon;
+            const res = await API.request('/subscriptions/checkout', { method: 'POST', body: body });
+
+            if (!res.requires_payment) {
+                toast(res.message || 'Subscription activated.');
+                pagePremium();
+                return;
+            }
+
+            const orderId = res.order.id;
+            const total = res.order.total_minor;
+            const spend = await API.request('/wallet/spend', {
+                method: 'POST',
+                body: { order_id: orderId, idempotency_key: 'sub:order:' + orderId },
+            });
+            toast('Paid ৳' + (total / 100).toFixed(2) + ' from your wallet — subscription active!');
+            if (spend && spend.balance_minor !== undefined) {
+                walletState.summary = { wallet: { currency: 'BDT', balance_minor: spend.balance_minor } };
+            }
+            pagePremium();
+        } catch (e) {
+            toast(e.message || 'Purchase failed', 'error');
+            if (btn) { btn.disabled = false; btn.textContent = 'Buy with wallet'; }
+        }
+    }
+
+    /* ==========================================================
        PAGE: Profile
        ========================================================== */
     async function pageProfile() {
@@ -919,6 +976,7 @@ const App = (() => {
         if (page === 'notifications') return pageNotifications();
         if (page === 'referrals') return pageReferrals();
         if (page === 'wallet') return pageWallet();
+        if (page === 'premium') return pagePremium();
         if (page === 'profile') return pageProfile();
 
         route();
@@ -937,6 +995,7 @@ const App = (() => {
         markNotificationRead, markAllNotificationsRead, loadMoreNotifications,
         copyReferralLink, loadMoreInvites,
         loadMoreWalletTxs,
+        buyPackage,
         route,
     };
 })();

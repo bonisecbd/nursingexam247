@@ -524,6 +524,81 @@ Returns only the authenticated inviter's paginated statuses and referral/qualifi
 
 Links the authenticated new account to an active student inviter once, within 24 hours of registration and before starting an exam. Registration can instead include optional `referral_code`; the account and referral attribution are committed atomically. The student dashboard supports redeeming a code during onboarding. Invalid, self, inactive, or already-used codes fail validation. Attribution stays pending; account creation does not issue points, XP, or money. Purchase qualification and rewards are unavailable until the purchase/subscription module defines an approved qualifying event and anti-abuse policy.
 
+## Subscription API
+
+Premium access is granted only by a verified payment — checkout itself never activates anything. Balances/orders are integer minor units (poisha).
+
+### Packages (public catalogue)
+
+`GET /api/subscription-packages` — no authentication required.
+
+```json
+{
+  "data": [
+    {
+      "id": 2,
+      "code": "PREMIUM_30D",
+      "name": "Premium 30 days",
+      "description": "All premium tests for 30 days",
+      "price_minor": 100000,
+      "currency": "BDT",
+      "duration_days": 30,
+      "is_active": true,
+      "entitlements": { "all_premium_tests": true, "test_ids": [] }
+    }
+  ]
+}
+```
+
+### My subscriptions
+
+`GET /api/subscriptions/me?page=1&per_page=15` (authentication required)
+
+```json
+{
+  "subscriptions": [
+    {
+      "id": 7,
+      "status": "active",
+      "source": "wallet",
+      "starts_at": "2026-10-15T08:00:00.000000Z",
+      "ends_at": "2026-11-14T08:00:00.000000Z",
+      "package": { "id": 2, "code": "PREMIUM_30D", "name": "Premium 30 days", "duration_days": 30 },
+      "order_reference": "ORD-XYZ"
+    }
+  ],
+  "active": true,
+  "entitlements": { "all_premium_tests": true, "test_ids": [] },
+  "meta": { "current_page": 1, "last_page": 1, "per_page": 15, "total": 1 }
+}
+```
+
+`status` is computed against the clock: an `active` row past its `ends_at` is reported as `expired`.
+
+### Checkout (create a pending order)
+
+`POST /api/subscriptions/checkout` with `{ "package_id": 2, "coupon_code": "NURSE10" }` (authentication required) — returns `201`:
+
+```json
+{
+  "message": "Order created. Complete the payment to activate the subscription.",
+  "order": { "id": 42, "reference": "ORD-XYZ", "status": "pending", "subtotal_minor": 100000, "discount_minor": 10000, "total_minor": 90000, "currency": "BDT" },
+  "requires_payment": true,
+  "package": { "id": 2, "code": "PREMIUM_30D", "name": "Premium 30 days", "duration_days": 30 }
+}
+```
+
+The server recalculates the price and validates the coupon (see the Coupons API). A zero-total order settles immediately (`requires_payment: false`, `status: "paid"`).
+
+### Paying the order
+
+- **From the wallet:** `POST /api/wallet/spend` with `{ "order_id": 42, "idempotency_key": "sub:order:42" }` (see Wallet API) — a verified payment activates the subscription; retries never double-charge.
+- **External payment:** `POST /api/payments/{payment}/verify` after the provider callback; the wallet is never charged.
+
+### Test access check
+
+`GET /api/tests/{test}/access` (authentication required) — server-side explanation for one published test: `{"access": {...}}` (free test, entitlement by package, or premium required). Premium tests also honour sequential unlock rules.
+
 ## Wallet API
 
 The wallet is an append-only ledger in integer minor units (poisha, `BDT`). Credits are positive, debits negative; the balance is always a server-side projection of the ledger — never a client-settable field. All endpoints are bearer-protected and owner-scoped (another user's transaction returns `404`).

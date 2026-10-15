@@ -35,6 +35,7 @@ const Views = (() => {
                     <a href="/notifications" class="${active === 'notifications' ? 'active' : ''}">Notifications</a>
                     <a href="/referrals" class="${active === 'referrals' ? 'active' : ''}">Referrals</a>
                     <a href="/wallet" class="${active === 'wallet' ? 'active' : ''}">Wallet</a>
+                    <a href="/premium" class="${active === 'premium' ? 'active' : ''}">Premium</a>
                 </div>
                 <div class="nav-user" onclick="navigate('/profile')">
                     <div class="avatar">${initial}</div>
@@ -55,6 +56,7 @@ const Views = (() => {
             <a href="/notifications" class="${active === 'notifications' ? 'active' : ''}">🔔 Notifications</a>
             <a href="/referrals" class="${active === 'referrals' ? 'active' : ''}">🤝 Referrals</a>
             <a href="/wallet" class="${active === 'wallet' ? 'active' : ''}">👛 Wallet</a>
+            <a href="/premium" class="${active === 'premium' ? 'active' : ''}">⭐ Premium</a>
             <div class="section-title">Account</div>
             <a href="/profile" class="${active === 'profile' ? 'active' : ''}">👤 Profile</a>
             <a href="javascript:void(0)" onclick="App.logout()">🚪 Logout</a>
@@ -973,6 +975,114 @@ const Views = (() => {
         </div>`;
     }
 
+    /* ---------- PREMIUM / SUBSCRIPTIONS ---------- */
+    function premium(state) {
+        const packages = Array.isArray(state && state.packages) ? state.packages : [];
+        const mine = state && state.mine || {};
+        const subs = Array.isArray(mine.subscriptions) ? mine.subscriptions : [];
+        const active = !!mine.active;
+        const ent = mine.entitlements || {};
+
+        function money(minor) {
+            return (Number(minor || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        function when(iso) {
+            return iso ? String(iso).replace('T', ' ').slice(0, 16) + ' (UTC)' : '—';
+        }
+
+        const statusBadge = (status) => {
+            if (status === 'active') return '<span class="badge badge-success">Active</span>';
+            if (status === 'expired') return '<span class="badge badge-warning">Expired</span>';
+            return '<span class="badge badge-info">' + esc(status || '—') + '</span>';
+        };
+
+        const statusCard = active ? `
+            <div class="card lb-me" style="margin-bottom:12px;border-left:3px solid var(--success)">
+                <div class="lb-me-info">
+                    <div class="lb-me-label">Premium status</div>
+                    <div style="font-size:1.2rem;font-weight:800;color:var(--success)">⭐ Active</div>
+                    <p class="text-muted" style="margin:4px 0 0;font-size:.85rem">${ent.all_premium_tests
+                        ? 'All premium tests unlocked'
+                        : (ent.test_ids || []).length + ' premium test' + ((ent.test_ids || []).length === 1 ? '' : 's') + ' unlocked'}${subs[0] && subs[0].ends_at ? ' · renews ' + esc(when(subs[0].ends_at)) : ''}</p>
+                </div>
+            </div>` : `
+            <div class="card lb-me" style="margin-bottom:12px;border-left:3px solid var(--text-light)">
+                <div class="lb-me-info">
+                    <div class="lb-me-label">Premium status</div>
+                    <div style="font-size:1.2rem;font-weight:800;color:var(--text-muted)">Free plan</div>
+                    <p class="text-muted" style="margin:4px 0 0;font-size:.85rem">Buy a package to unlock premium tests</p>
+                </div>
+            </div>`;
+
+        const packageCards = packages.length ? `
+            <div class="grid-3">
+                ${packages.map(p => `
+                <div class="card" style="display:flex;flex-direction:column;gap:8px">
+                    <div class="lb-me-label">${esc(p.code)}</div>
+                    <div style="font-size:1.15rem;font-weight:800">${esc(p.name)}</div>
+                    <div style="font-size:1.6rem;font-weight:800">৳${money(p.price_minor)} <span style="font-size:.85rem;color:var(--text-muted)">/ ${num(p.duration_days)} days</span></div>
+                    ${p.description ? `<p class="text-muted" style="margin:0;font-size:.85rem">${esc(p.description)}</p>` : ''}
+                    <div style="font-size:.85rem">${p.entitlements && p.entitlements.all_premium_tests
+                        ? '<span class="badge badge-success">All premium tests</span>'
+                        : '<span class="badge badge-info">' + num((p.entitlements && p.entitlements.test_ids || []).length) + ' specific test(s)</span>'}</div>
+                    <div class="form-group" style="margin:4px 0 0">
+                        <input type="text" id="coupon-${p.id}" class="form-control" placeholder="Coupon code (optional)" maxlength="40">
+                    </div>
+                    <button class="btn btn-primary btn-block" id="buy-${p.id}" onclick="App.buyPackage(${p.id})">Buy with wallet</button>
+                </div>`).join('')}
+            </div>` : `
+            <div class="card empty-state">
+                <div class="icon">⭐</div>
+                <h3>No packages available</h3>
+                <p>Premium packages will appear here when configured</p>
+            </div>`;
+
+        const subsTable = subs.length ? `
+            <div class="card" style="padding:0">
+                <div class="table-wrapper">
+                    <table class="table">
+                        <thead><tr><th>Package</th><th>Status</th><th>Source</th><th>Window</th><th>Order</th></tr></thead>
+                        <tbody>
+                            ${subs.map(s => `
+                            <tr>
+                                <td><strong>${esc(s.package ? s.package.name : '—')}</strong></td>
+                                <td>${statusBadge(s.status)}</td>
+                                <td>${esc(s.source || '—')}</td>
+                                <td>${esc(when(s.starts_at))} → ${esc(when(s.ends_at))}</td>
+                                <td><code>${esc(s.order_reference || '—')}</code></td>
+                            </tr>`).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>` : `
+            <div class="card empty-state">
+                <div class="icon">📦</div>
+                <h3>No subscriptions yet</h3>
+                <p>Your purchases will appear here</p>
+            </div>`;
+
+        return `
+        ${header('premium')}
+        <div class="layout">
+            ${sidebar('premium')}
+            <main class="main">
+                <h1 style="font-size:1.6rem;font-weight:800;margin-bottom:4px">⭐ Premium</h1>
+                <p class="text-muted mb-3">Unlock premium model tests — pay straight from your wallet</p>
+
+                ${statusCard}
+
+                <h2 style="font-size:1.1rem;font-weight:700;margin:18px 0 10px">Packages</h2>
+                ${packageCards}
+
+                <h2 style="font-size:1.1rem;font-weight:700;margin:18px 0 10px">Your subscriptions</h2>
+                ${subsTable}
+
+                <p class="text-muted" style="font-size:.82rem;margin-top:12px">Checkout creates a pending order; your wallet is charged atomically and the subscription activates only after the verified payment. Retried purchases never double-charge. Top up your wallet from the <a href="/wallet">Wallet page</a>.</p>
+            </main>
+        </div>`;
+    }
+
     /* ---------- PROFILE ---------- */
     function profile(data) {
         const u = data.user || API.user() || {};
@@ -1064,5 +1174,5 @@ const Views = (() => {
         </div>`;
     }
 
-    return { header, sidebar, login, register, forgot, dashboard, testsList, examHeader, examBody, questionView, result, solution, solutionItem, history, leaderboard, notifications, referrals, wallet, profile, esc };
+    return { header, sidebar, login, register, forgot, dashboard, testsList, examHeader, examBody, questionView, result, solution, solutionItem, history, leaderboard, notifications, referrals, wallet, premium, profile, esc };
 })();
