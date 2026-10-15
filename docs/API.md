@@ -496,6 +496,105 @@ Returns only the authenticated inviter's paginated statuses and referral/qualifi
 
 Links the authenticated new account to an active student inviter once, within 24 hours of registration and before starting an exam. Registration can instead include optional `referral_code`; the account and referral attribution are committed atomically. The student dashboard supports redeeming a code during onboarding. Invalid, self, inactive, or already-used codes fail validation. Attribution stays pending; account creation does not issue points, XP, or money. Purchase qualification and rewards are unavailable until the purchase/subscription module defines an approved qualifying event and anti-abuse policy.
 
+## Coupons API
+
+Coupons apply validated promotions to subscription-package purchases. All amounts are integer minor units (poisha) in `BDT`; the server always recomputes the discount and payable total — a client-supplied discount or total is never trusted. One coupon per order (stacking is denied), and the actual reservation/redemption happens atomically inside checkout, not on these endpoints.
+
+### Validate a coupon (quote)
+
+`POST /api/coupons/validate` (authentication required)
+
+```json
+{
+  "code": "NURSE10",
+  "product_id": 2
+}
+```
+
+Returns a read-only quote; no redemption is reserved here.
+
+```json
+{
+  "valid": true,
+  "coupon": { "id": 1, "code": "NURSE10", "discount_type": "percentage" },
+  "quote": {
+    "product_id": 2,
+    "subtotal_minor": 49900,
+    "discount_minor": 4990,
+    "payable_minor": 44910,
+    "currency": "BDT"
+  }
+}
+```
+
+The server checks the date window, active flag, currency, product eligibility, minimum order value, and remaining global/per-user redemption limits, and caps any discount at the eligible subtotal (payable never goes below zero). Failures return `422` with the failing rule in `errors.code` (unknown/expired/disabled code, per-user limit reached, minimum not met, product not eligible, …). Codes are matched case-insensitively (stored uppercase).
+
+### Admin: list coupons
+
+`GET /api/admin/coupons?search=NURSE&status=all|active|scheduled|expired|disabled&per_page=15` (admin role required)
+
+```json
+{
+  "data": [
+    {
+      "id": 1,
+      "code": "NURSE10",
+      "discount_type": "percentage",
+      "discount_percent": 10,
+      "discount_amount_minor": null,
+      "currency": "BDT",
+      "starts_at": "2026-10-01T00:00:00.000000Z",
+      "ends_at": "2026-11-01T00:00:00.000000Z",
+      "status": "active",
+      "is_active": true,
+      "global_redemption_limit": 500,
+      "per_user_redemption_limit": 1,
+      "minimum_order_amount_minor": 0,
+      "eligible_product_ids": null,
+      "is_stackable": false,
+      "created_at": "2026-10-10T08:00:00.000000Z",
+      "updated_at": "2026-10-10T08:00:00.000000Z"
+    }
+  ],
+  "meta": { "total": 1, "current_page": 1, "last_page": 1, "per_page": 15 }
+}
+```
+
+`status` (computed server-side): `disabled` (`is_active=false`), `scheduled` (future `starts_at`), `expired` (`ends_at` in the past), otherwise `active`. `search` matches the code (uppercased substring).
+
+### Admin: create a coupon
+
+`POST /api/admin/coupons` (admin role required) — returns `201` with `message` and `coupon`.
+
+```json
+{
+  "code": "NURSE10",
+  "discount_type": "percentage",
+  "discount_percent": 10,
+  "starts_at": "2026-10-01",
+  "ends_at": "2026-11-01",
+  "global_redemption_limit": 500,
+  "per_user_redemption_limit": 1,
+  "minimum_order_amount_minor": 0,
+  "eligible_product_ids": [2, 3],
+  "is_stackable": false
+}
+```
+
+- `code`: required, unique (case-insensitive storage), `^[A-Za-z0-9_-]+$`, max 40; stored uppercase.
+- `discount_type`: `percentage` (then `discount_percent` required, 1–100) or `fixed` (then `discount_amount_minor` required, minor units); the two are mutually exclusive (`prohibited_if`).
+- `currency`: optional, defaults to `BDT` (only accepted currency today).
+- `starts_at`/`ends_at`: optional dates; `ends_at` must be later than `starts_at`.
+- `is_active` (default true), `global_redemption_limit`/`per_user_redemption_limit` (null = unlimited), `minimum_order_amount_minor` (default 0), `eligible_product_ids` (null = all products), `is_stackable` (default false; stacking is still denied by the one-per-order rule).
+
+### Admin: update / disable
+
+`PATCH /api/admin/coupons/{coupon}` — same fields as create; `discount_type` and its value fields plus `currency` are required on update (partial updates of the discount rule are rejected).
+
+`POST /api/admin/coupons/{coupon}/disable` — sets `is_active=false` immediately (existing reserved checkouts finish under their original terms). Returns `message` + `coupon`.
+
+Both require the admin role (`403` for others; unknown IDs → `404`). See `backend/tests/Feature/CouponApiTest.php` for the exact error matrix.
+
 ## Analytics API
 
 All three endpoints require authentication and only aggregate the caller's own finalized (`submitted` or `expired`) attempts. Scores are computed on the server; the client never supplies them.

@@ -80,7 +80,12 @@ const adminMenu = [
     { id: 'challenges', label: 'Challenges', icon: 'star', soon: true, children: ['Daily Challenge', 'Weekly Challenge', 'Competition'] },
   ] },
   { heading: 'COMMERCE', items: [
-    { id: 'coupons', label: 'Coupons', icon: 'tag', soon: true, children: ['All Coupons', 'Create Coupon', 'Active', 'Expired'] },
+    { id: 'coupons', label: 'Coupons', icon: 'tag', page: 'coupons', children: [
+      { id: 'coupons-all', label: 'All Coupons', page: 'coupons' },
+      { id: 'coupons-active', label: 'Active Coupons', page: 'coupons' },
+      { id: 'coupons-scheduled', label: 'Scheduled Coupons', page: 'coupons' },
+      { id: 'coupons-expired', label: 'Expired Coupons', page: 'coupons' },
+    ] },
     { id: 'referrals', label: 'Referrals', icon: 'users', page: 'referrals' },
     { id: 'wallet', label: 'Wallet', icon: 'wallet', soon: true, children: ['User Wallets', 'Transactions', 'Credits', 'Debits'] },
     { id: 'payments', label: 'Payments', icon: 'payment', soon: true, children: ['Transactions', 'Successful', 'Failed', 'Pending', 'Refunds'] },
@@ -375,6 +380,183 @@ function AdminSubjects({ token, onNotice }) {
             <label>Description (optional)<textarea name="description" maxLength={2000} rows="4" defaultValue={formSubject?.description || ''} placeholder="Briefly describe this subject" /></label>
             <label className="admin-checkbox-label"><input name="is_active" type="checkbox" defaultChecked={formSubject?.is_active ?? true} /> Available in the student catalogue</label>
             <button className="button button-primary auth-submit" disabled={formBusy}>{formBusy ? 'Saving subject…' : formSubject ? 'Save changes' : 'Create subject'} {!formBusy && <Icon name="arrow" size={17} />}</button>
+          </form>
+        </section>
+      </div>}
+    </section>
+  )
+}
+
+function AdminCoupons({ token, onNotice }) {
+  const [result, setResult] = useState(null)
+  const [searchText, setSearchText] = useState('')
+  const [search, setSearch] = useState('')
+  const [status, setStatus] = useState('all')
+  const [reloadKey, setReloadKey] = useState(0)
+  const [formCoupon, setFormCoupon] = useState(undefined)
+  const [formBusy, setFormBusy] = useState(false)
+  const [formError, setFormError] = useState('')
+  const [disableBusy, setDisableBusy] = useState(null)
+  const requestKey = `${search}:${status}:${reloadKey}`
+
+  useEffect(() => {
+    let active = true
+    const params = new URLSearchParams({ per_page: '50', status })
+    if (search) params.set('search', search)
+    apiRequest(`/admin/coupons?${params.toString()}`, { token })
+      .then((data) => { if (active) setResult({ key: requestKey, data }) })
+      .catch((requestError) => { if (active) setResult({ key: requestKey, error: requestError.message }) })
+
+    return () => { active = false }
+  }, [requestKey, search, status, token])
+
+  const currentResult = result?.key === requestKey ? result : null
+  const coupons = currentResult?.data?.data || []
+  const meta = currentResult?.data?.meta
+  const loading = !currentResult
+  const loadError = currentResult?.error || ''
+
+  function submitSearch(event) {
+    event.preventDefault()
+    setSearch(searchText.trim())
+  }
+
+  async function saveCoupon(event) {
+    event.preventDefault()
+    setFormError('')
+    setFormBusy(true)
+    const fields = new FormData(event.currentTarget)
+    const type = fields.get('discount_type')
+    const payload = {
+      code: fields.get('code').trim(),
+      discount_type: type,
+      starts_at: fields.get('starts_at') || null,
+      ends_at: fields.get('ends_at') || null,
+      is_active: fields.get('is_active') === 'on',
+      is_stackable: fields.get('is_stackable') === 'on',
+      minimum_order_amount_minor: Number(fields.get('minimum_order_amount_minor') || 0),
+    }
+    if (type === 'percentage') {
+      payload.discount_percent = Number(fields.get('discount_percent'))
+    } else {
+      payload.discount_amount_minor = Number(fields.get('discount_amount_minor'))
+    }
+    const globalLimit = fields.get('global_redemption_limit')
+    if (globalLimit) payload.global_redemption_limit = Number(globalLimit)
+    const perUserLimit = fields.get('per_user_redemption_limit')
+    if (perUserLimit) payload.per_user_redemption_limit = Number(perUserLimit)
+    const products = fields.get('eligible_product_ids').split(',').map((value) => value.trim()).filter(Boolean)
+    if (products.length) payload.eligible_product_ids = products.map(Number)
+
+    try {
+      const editing = formCoupon !== null
+      const response = await apiRequest(
+        editing ? `/admin/coupons/${formCoupon.id}` : '/admin/coupons',
+        { method: editing ? 'PATCH' : 'POST', token, body: JSON.stringify(payload) },
+      )
+      setFormCoupon(undefined)
+      onNotice(response.message)
+      setReloadKey((value) => value + 1)
+    } catch (requestError) {
+      setFormError(requestError.message)
+    } finally {
+      setFormBusy(false)
+    }
+  }
+
+  async function disableCoupon(coupon) {
+    setDisableBusy(coupon.id)
+    try {
+      const response = await apiRequest(`/admin/coupons/${coupon.id}/disable`, { method: 'POST', token })
+      onNotice(response.message)
+      setReloadKey((value) => value + 1)
+    } catch (requestError) {
+      onNotice(requestError.message)
+    } finally {
+      setDisableBusy(null)
+    }
+  }
+
+  const number = (value) => Number(value || 0).toLocaleString()
+  const money = (minor) => `৳${(Number(minor || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const when = (iso) => (iso ? new Date(iso).toLocaleDateString() : '—')
+  const discountLabel = (coupon) => (coupon.discount_type === 'percentage' ? `${coupon.discount_percent}% off` : `${money(coupon.discount_amount_minor)} off`)
+
+  return (
+    <section className="admin-module-page admin-coupons-page">
+      <div className="admin-page-heading">
+        <div><span className="eyebrow">COMMERCE</span><h1>Coupons</h1><p>Promotion codes students apply at checkout. The server always recomputes the discount and payable total.</p></div>
+        <button className="button button-primary" onClick={() => { setFormError(''); setFormCoupon(null) }}><Icon name="arrow" size={17} /> Create coupon</button>
+      </div>
+      <div className="admin-module-stats admin-users-stats">
+        <span><b>{meta ? number(meta.total) : '—'}</b> matching coupons</span>
+      </div>
+      <section className="admin-panel admin-users-panel">
+        <div className="admin-users-toolbar">
+          <div><span className="eyebrow">COUPON DIRECTORY</span><h2>All coupons</h2></div>
+          <div className="admin-subject-tools">
+            <label className="sr-only" htmlFor="admin-coupon-status">Filter coupons by status</label>
+            <select id="admin-coupon-status" value={status} onChange={(event) => setStatus(event.target.value)}>
+              <option value="all">All statuses</option>
+              <option value="active">Active</option>
+              <option value="scheduled">Scheduled</option>
+              <option value="expired">Expired</option>
+              <option value="disabled">Disabled</option>
+            </select>
+            <form className="admin-user-search" onSubmit={submitSearch}>
+              <label className="sr-only" htmlFor="admin-coupon-search">Search coupons by code</label>
+              <input id="admin-coupon-search" value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder="Code" maxLength={40} />
+              <button className="button button-outline" type="submit"><Icon name="search" size={16} /> Search</button>
+            </form>
+          </div>
+        </div>
+        {loadError && <div className="form-error dashboard-error" role="alert">{loadError}</div>}
+        {loading ? <div className="dashboard-loading">Loading coupons…</div> : coupons.length ? <div className="admin-user-table-wrap"><table className="admin-subject-table">
+          <thead><tr><th>Code</th><th>Discount</th><th>Window</th><th>Min. order</th><th>Limits</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody>{coupons.map((coupon) => <tr key={coupon.id}>
+            <td><code>{coupon.code}</code><small>{coupon.eligible_product_ids?.length ? `Products #${coupon.eligible_product_ids.join(', #')}` : 'All products'}</small></td>
+            <td><b>{discountLabel(coupon)}</b>{coupon.is_stackable ? <small>Stackable flag</small> : null}</td>
+            <td>{when(coupon.starts_at)} → {when(coupon.ends_at)}</td>
+            <td>{money(coupon.minimum_order_amount_minor)}</td>
+            <td>{coupon.global_redemption_limit === null ? '∞ total' : `${number(coupon.global_redemption_limit)} total`}<small>{coupon.per_user_redemption_limit === null ? 'unlimited per user' : `${coupon.per_user_redemption_limit} per user`}</small></td>
+            <td><span className={`admin-user-status ${coupon.status === 'active' ? 'is-active' : 'is-blocked'}`}>{coupon.status}</span></td>
+            <td>
+              <button className="admin-user-view" onClick={() => { setFormError(''); setFormCoupon(coupon) }}>Edit</button>
+              {coupon.is_active && <button className="admin-user-view" disabled={disableBusy === coupon.id} onClick={() => disableCoupon(coupon)}>{disableBusy === coupon.id ? 'Disabling…' : 'Disable'}</button>}
+            </td>
+          </tr>)}</tbody>
+        </table></div> : !loadError ? <div className="admin-users-empty"><Icon name="tag" size={22} /><b>No coupons found</b><span>Create a coupon or adjust the filters.</span></div> : null}
+      </section>
+      <p className="admin-data-note"><Icon name="info" size={15} /> Students quote a code with POST /api/coupons/validate before payment. Redemption is reserved atomically at checkout — one coupon per order.</p>
+      {formCoupon !== undefined && <div className="auth-backdrop admin-create-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !formBusy) setFormCoupon(undefined) }}>
+        <section className="auth-card admin-create-card admin-subject-form-card" role="dialog" aria-modal="true" aria-labelledby="coupon-form-title">
+          <button className="auth-close" onClick={() => setFormCoupon(undefined)} aria-label="Close coupon form" disabled={formBusy}><Icon name="close" /></button>
+          <div className="auth-eyebrow">COUPON MANAGEMENT</div>
+          <h2 id="coupon-form-title">{formCoupon ? 'Edit coupon' : 'Create a coupon'}</h2>
+          <p className="auth-intro">Codes are stored uppercase and validated server-side before any discount is applied.</p>
+          {formError && <div className="form-error" role="alert">{formError}</div>}
+          <form className="auth-form admin-test-form" onSubmit={saveCoupon}>
+            <label>Coupon code<input name="code" required maxLength={40} pattern="[A-Za-z0-9_-]+" defaultValue={formCoupon?.code || ''} placeholder="e.g. NURSE10" /></label>
+            <div className="admin-form-row">
+              <label>Discount type<select name="discount_type" required defaultValue={formCoupon?.discount_type || 'percentage'}><option value="percentage">Percentage (%)</option><option value="fixed">Fixed amount</option></select></label>
+              <label>Percentage off<input name="discount_percent" type="number" min="1" max="100" defaultValue={formCoupon?.discount_percent ?? 10} required /></label>
+            </div>
+            <div className="admin-form-row">
+              <label>Fixed discount (poisha)<input name="discount_amount_minor" type="number" min="1" max="1000000000" defaultValue={formCoupon?.discount_amount_minor ?? 5000} /></label>
+              <label>Minimum order (poisha)<input name="minimum_order_amount_minor" type="number" min="0" max="1000000000" defaultValue={formCoupon?.minimum_order_amount_minor ?? 0} /></label>
+            </div>
+            <div className="admin-form-row">
+              <label>Starts at<input name="starts_at" type="date" defaultValue={formCoupon?.starts_at ? formCoupon.starts_at.slice(0, 10) : ''} /></label>
+              <label>Ends at<input name="ends_at" type="date" defaultValue={formCoupon?.ends_at ? formCoupon.ends_at.slice(0, 10) : ''} /></label>
+            </div>
+            <div className="admin-form-row">
+              <label>Total redemption limit<input name="global_redemption_limit" type="number" min="1" defaultValue={formCoupon?.global_redemption_limit ?? ''} placeholder="Unlimited" /></label>
+              <label>Per-user limit<input name="per_user_redemption_limit" type="number" min="1" defaultValue={formCoupon?.per_user_redemption_limit ?? 1} /></label>
+            </div>
+            <label>Eligible product IDs (optional)<input name="eligible_product_ids" defaultValue={formCoupon?.eligible_product_ids?.join(', ') || ''} placeholder="e.g. 2, 3 — blank means all products" /></label>
+            <label className="admin-checkbox-label"><input name="is_active" type="checkbox" defaultChecked={formCoupon?.is_active ?? true} /> Active</label>
+            <label className="admin-checkbox-label"><input name="is_stackable" type="checkbox" defaultChecked={formCoupon?.is_stackable ?? false} /> Stackable flag (informational — one coupon per order)</label>
+            <button className="button button-primary auth-submit" disabled={formBusy}>{formBusy ? 'Saving coupon…' : formCoupon ? 'Save changes' : 'Create coupon'} {!formBusy && <Icon name="arrow" size={17} />}</button>
           </form>
         </section>
       </div>}
@@ -1255,7 +1437,7 @@ function AdminDashboard({ user, token, onLogout, busy, sessionError, navigateTo 
                 <button onClick={() => { setActivePage('question-bank-create'); setSidebarOpen(false) }}><Icon name="question" size={16} /> Add question</button>
                 <button onClick={() => { setCreateError(''); setCreateOpen(true) }}><Icon name="book" size={16} /> Create model test</button>
                 <button onClick={() => { setActivePage('subjects'); setSidebarOpen(false) }}><Icon name="book" size={16} /> Manage subjects</button>
-                <button onClick={() => { setActivePage('coupons'); setSidebarOpen(false) }}><Icon name="tag" size={16} /> Create coupon <small>SOON</small></button>
+                <button onClick={() => { setActivePage('coupons'); setSidebarOpen(false) }}><Icon name="tag" size={16} /> Manage coupons</button>
                 <button onClick={() => { setActivePage('notifications'); setSidebarOpen(false) }}><Icon name="bell" size={16} /> Send notification <small>SOON</small></button>
               </div>
               <div className="admin-kpi-grid">
@@ -1300,6 +1482,8 @@ function AdminDashboard({ user, token, onLogout, busy, sessionError, navigateTo 
             <LeaderboardPanel token={token} />
           ) : activePage === 'referrals' ? (
             <ReferralPanel token={token} />
+          ) : activePage === 'coupons' ? (
+            <AdminCoupons token={token} onNotice={setNotice} />
           ) : (
             <section className="admin-coming-page"><span className="admin-coming-icon"><Icon name={selectedItem?.icon || 'settings'} size={27} /></span><span className="eyebrow">PLATFORM MODULE</span><h1>{selectedItem?.label || 'Management'}</h1><p>This section is part of the platform management plan, but its management API and interface are not implemented yet.</p><div className="admin-coming-status"><Icon name="clock" size={16} /> Coming soon — no data or actions are available here yet.</div><button className="button button-outline" onClick={() => selectPage('dashboard')}>Back to dashboard <Icon name="arrow" size={15} /></button></section>
           )}
