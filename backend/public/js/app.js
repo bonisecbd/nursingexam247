@@ -35,6 +35,7 @@ const App = (() => {
             if (path === '/tests') return pageTests();
             if (path === '/history') return pageHistory();
             if (path === '/leaderboard') return pageLeaderboard();
+            if (path === '/challenges') return pageChallenges();
             if (path === '/notifications') return pageNotifications();
             if (path === '/referrals') return pageReferrals();
             if (path === '/wallet') return pageWallet();
@@ -407,6 +408,80 @@ const App = (() => {
             route();
         } catch (e) {
             toast(e.message || 'Could not update your leaderboard preference', 'error');
+        }
+    }
+
+    /* ==========================================================
+       PAGE: Challenges
+       ========================================================== */
+    const challengeState = { list: [], me: {}, standings: null, standingsFor: null };
+
+    async function pageChallenges() {
+        const seq = loading('Loading challenges...');
+        let listRes;
+        try {
+            listRes = await API.request('/challenges?per_page=20');
+        } catch (e) {
+            if (stale(seq)) return;
+            toast(e.message || 'Could not load challenges', 'error');
+            render(Views.challenges(challengeState));
+            return;
+        }
+        challengeState.list = listRes.data || [];
+        challengeState.me = {};
+        challengeState.standings = null;
+        challengeState.standingsFor = null;
+
+        // Personal state per challenge (auth only; the list itself is public).
+        if (localStorage.getItem('nurse_token')) {
+            const meResults = await Promise.allSettled(
+                challengeState.list.map(c => API.request('/challenges/' + c.id + '/me'))
+            );
+            if (stale(seq)) return;
+            meResults.forEach((r, i) => {
+                if (r.status === 'fulfilled') challengeState.me[challengeState.list[i].id] = r.value;
+            });
+        }
+
+        if (stale(seq)) return;
+        render(Views.challenges(challengeState));
+    }
+
+    // Start a challenge attempt and hand it to the shared exam player.
+    async function startChallenge(challengeId) {
+        const btn = document.getElementById('chstart-' + challengeId);
+        if (btn) { btn.disabled = true; btn.textContent = 'Joining...'; }
+        try {
+            const res = await API.request('/challenges/' + challengeId + '/attempts', { method: 'POST' });
+            const test = (res.challenge && res.challenge.test) || null;
+            const attempt = Object.assign({}, res.attempt || {}, {
+                test: test,
+                test_title: (test && test.title) || 'Challenge',
+            });
+            if (res.resumed) toast('Resuming your live attempt', 'warning');
+            if (!mountExam({ attempt: attempt })) {
+                toast('Could not load the challenge questions', 'error');
+                pageChallenges();
+            }
+        } catch (e) {
+            toast(e.message || 'Could not start the challenge', 'error');
+            if (btn) { btn.disabled = false; btn.textContent = '▶ Start challenge'; }
+        }
+    }
+
+    // Resume an in-progress challenge attempt in the shared exam player.
+    function resumeChallenge(attemptId) {
+        resumeExamAttempt(attemptId);
+    }
+
+    async function loadChallengeStandings(challengeId) {
+        try {
+            const data = await API.request('/challenges/' + challengeId + '/leaderboard?per_page=20');
+            challengeState.standingsFor = challengeId;
+            challengeState.standings = data.data || [];
+            render(Views.challenges(challengeState));
+        } catch (e) {
+            toast(e.message || 'Could not load standings', 'error');
         }
     }
 
@@ -975,6 +1050,7 @@ const App = (() => {
         if (page === 'solution' && cfg.param) return pageSolution(cfg.param);
         if (page === 'history') return pageHistory();
         if (page === 'leaderboard') return pageLeaderboard();
+        if (page === 'challenges') return pageChallenges();
         if (page === 'notifications') return pageNotifications();
         if (page === 'referrals') return pageReferrals();
         if (page === 'wallet') return pageWallet();
@@ -998,6 +1074,9 @@ const App = (() => {
         copyReferralLink, loadMoreInvites,
         loadMoreWalletTxs,
         buyPackage,
+        startChallenge,
+        resumeChallenge,
+        loadChallengeStandings,
         route,
     };
 })();

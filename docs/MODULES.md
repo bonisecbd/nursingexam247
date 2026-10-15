@@ -139,7 +139,7 @@ Rules:
 
 ## 09. Leaderboard Module
 
-**Status: Implemented for exams.** Public period leaderboards and authenticated personal rank are available. Students opt in through profile settings; only active opted-in students with eligible finalized published-test attempts appear. Scores sum the best percentage per test within the period. Daily, weekly, and monthly boundaries use `Asia/Dhaka`; ties are broken by test count, achievement time, then stable user ID. Challenge standings are not included until the Challenge module is implemented.
+**Status: Implemented for exams.** Public period leaderboards and authenticated personal rank are available. Students opt in through profile settings; only active opted-in students with eligible finalized published-test attempts appear. Scores sum the best percentage per test within the period. Daily, weekly, and monthly boundaries use `Asia/Dhaka`; ties are broken by test count, achievement time, then stable user ID. Challenge standings are intentionally separate: each challenge carries its own opt-in-free standings at `/api/challenges/{challenge}/leaderboard` and never mixes into period leaderboards.
 
 **Purpose:** rank eligible, opted-in students from completed exam/challenge performance.
 
@@ -172,7 +172,7 @@ Proposed endpoints:
 
 Rules:
 
-- Award 5 points and 10 XP by default on the first valid submitted completion of each published test; the admin can configure future awards from 1 to 10,000. Challenge rewards are not included until the Challenge module is implemented.
+- Award 5 points and 10 XP by default on the first valid submitted completion of each published test; the admin can configure future awards from 1 to 10,000. Challenge completions award through the same ledger with `reward_type` like `challenge_daily_2026-10-15` (first completed attempt per user per occurrence only).
 - Use a unique idempotency key per user/source event/reward type, so retried submissions cannot grant duplicate rewards.
 - Store an immutable `point_transactions` ledger; derive current point balance from the ledger or reconcile a cached balance against it.
 - Store XP events separately from spendable points. XP/level progress cannot be spent as wallet money.

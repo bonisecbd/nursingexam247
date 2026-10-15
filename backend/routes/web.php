@@ -16,6 +16,7 @@ Route::get('/result/{id}', fn ($id) => view('app', ['boot' => 'result', 'param' 
 Route::get('/solution/{id}', fn ($id) => view('app', ['boot' => 'solution', 'param' => $id]));
 Route::get('/history', fn () => view('app', ['boot' => 'history']));
 Route::get('/leaderboard', fn () => view('app', ['boot' => 'leaderboard']));
+Route::get('/challenges', fn () => view('app', ['boot' => 'challenges']));
 Route::get('/notifications', fn () => view('app', ['boot' => 'notifications']));
 Route::get('/referrals', fn () => view('app', ['boot' => 'referrals']));
 Route::get('/wallet', fn () => view('app', ['boot' => 'wallet']));

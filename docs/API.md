@@ -613,6 +613,104 @@ Rules enforced server-side:
 
 See `backend/tests/Feature/SettingApiTest.php`.
 
+## Challenges API
+
+Daily, weekly, and one-off quiz challenges. Reads are public like the test catalogue; starting, personal state, and submission require a bearer token. Challenge attempts are **normal Exam module attempts** — answer-save, resume, and results all run through the existing `/api/attempts/...` endpoints, so scoring cannot diverge. Each attempt belongs to a *participation* bucketed by occurrence (`daily:YYYY-MM-DD`, `weekly:YYYY-Www`, `once`) in the challenge's timezone, with a unique user+occurrence+attempt constraint.
+
+### List available challenges
+
+`GET /api/challenges?period=daily|weekly|one_off&per_page=15` — active challenges whose window currently covers now (public):
+
+```json
+{
+  "data": [
+    {
+      "id": 3,
+      "title": "Daily Quiz: Pharmacology",
+      "description": "Ten sharp questions to start the day",
+      "period": "daily",
+      "timezone": "Asia/Dhaka",
+      "status": "active",
+      "is_active": true,
+      "starts_at": "2026-10-14T18:00:00.000000Z",
+      "ends_at": "2026-10-15T18:00:00.000000Z",
+      "current_occurrence": { "key": "daily:2026-10-15", "starts_at": "...", "ends_at": "..." },
+      "duration_minutes": 15,
+      "attempts_allowed": 2,
+      "reward": { "points": 50, "xp": 100, "wallet_minor": 1000, "currency": "BDT" },
+      "test": { "id": 7, "title": "Pharmacology Set A", "question_count": 10, "duration_minutes": 15, "total_marks": 10, "passing_score": 6, "is_premium": false },
+      "participant_count": 42
+    }
+  ],
+  "meta": { "period": "all", "current_page": 1, "last_page": 1, "per_page": 15, "total": 1 }
+}
+```
+
+`GET /api/challenges/{challenge}` returns the single object above wrapped in `{"challenge": ...}`.
+
+### Start or resume
+
+`POST /api/challenges/{challenge}/attempts` (authentication required) — `201` for a new attempt, `200` with `"resumed": true` for the live one. The server re-checks: active flag, availability window, **premium entitlement**, published question-set integrity, and the per-occurrence attempt limit (`422` otherwise). The response carries the challenge, the participation, and the full attempt (questions with saved `selected_option`), shaped exactly like `POST /api/attempts` so the standard exam UI mounts unchanged:
+
+```json
+{
+  "challenge": { "...": "challengeData" },
+  "participation": { "id": 9, "occurrence_key": "daily:2026-10-15", "attempt_index": 2, "attempt_id": 55, "attempt": { "...": "..." }, "reward": { "...": "..." } },
+  "attempt": { "id": 55, "test_id": 7, "status": "in_progress", "started_at": "...", "expires_at": "...", "time_remaining_seconds": 900, "total_marks": 10, "questions": [ { "id": 1, "sequence": 1, "question_text": "...", "options": ["A", "B"], "points": 1, "selected_option": null } ] },
+  "resumed": false
+}
+```
+
+### Personal state
+
+`GET /api/challenges/{challenge}/me` (authentication required):
+
+```json
+{
+  "challenge": { "...": "challengeData" },
+  "occurrence": "daily:2026-10-15",
+  "attempts_allowed": 2,
+  "attempts_used": 1,
+  "live_attempt": null,
+  "rank": 4,
+  "score": 80.0,
+  "history": [ { "id": 9, "occurrence_key": "daily:2026-10-15", "attempt_index": 1, "attempt_id": 51, "attempt": { "...": "result": { "percentage": 80, "passed": true } }, "reward": { "...": "..." } } ]
+}
+```
+
+### Submission and settlement
+
+Submit through the challenge route — same contract as `POST /api/attempts/{attempt}/submit` plus the challenge reward block:
+
+`POST /api/challenges/{challenge}/attempts/{attempt}/submit` (owner-only, throttled `10/1min`) → the exam result plus:
+
+```json
+{ "challenge": { "id": 3, "participation_id": 9, "occurrence_key": "daily:2026-10-15", "reward": { "awarded": true, "points": 50, "xp": 100, "wallet_credited_minor": 1000 } } }
+```
+
+Settlement is **lazy and idempotent** (also swept on `/me` and leaderboard reads): the first completed attempt per user per occurrence awards gamification points/XP plus an optional wallet credit (`source_type: "challenge"`); replays never double-award. Retrying the submit stays idempotent through the exam module's own rules.
+
+### Standings
+
+`GET /api/challenges/{challenge}/leaderboard?per_page=50` (public; finished participations are settled first so rewards appear before the table is read). Tie-break: score desc, earlier first completion, user id. Challenge standings do not require `leaderboard_opt_in`:
+
+```json
+{
+  "data": [ { "rank": 1, "display_name": "Ayesha K.", "avatar_url": null, "score": 100.0, "attempt_count": 1, "achieved_at": "2026-10-15T09:12:00.000000Z" } ],
+  "meta": { "challenge_id": 3, "current_page": 1, "last_page": 1, "per_page": 50, "total": 12 }
+}
+```
+
+### Admin management
+
+These require the `admin` role:
+
+- `GET /api/admin/challenges?period=all&status=all|upcoming|active|ended|disabled&per_page=15` — management list (any status, includes participant counts).
+- `POST /api/admin/challenges` — create. Required: `title`, `period` (`daily|weekly|one_off`), `test_id` (must be a **published** test), `starts_at`, `ends_at` (must be ordered), `duration_minutes` (1–1440), `attempts_allowed` (1–10). Optional: `description`, `timezone` (valid identifier, default `Asia/Dhaka`), `reward_points`, `reward_xp`, `reward_wallet_minor`, `is_active` → `201` with `message` + `challenge`.
+- `PATCH /api/admin/challenges/{challenge}` — partial update. Once students have participations the `test_id` and `period` are **frozen** (`409`); everything else stays editable. Returns `message` + `challenge`.
+
+See `backend/tests/Feature/ChallengeApiTest.php` (13 tests).
+
 ## Subscription API
 
 Premium access is granted only by a verified payment — checkout itself never activates anything. Balances/orders are integer minor units (poisha).

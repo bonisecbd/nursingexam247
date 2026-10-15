@@ -77,7 +77,12 @@ const adminMenu = [
       { id: 'gamification-rules', label: 'Reward rules', page: 'gamification' },
       { id: 'gamification-progress', label: 'My progress', page: 'gamification-progress' },
     ] },
-    { id: 'challenges', label: 'Challenges', icon: 'star', soon: true, children: ['Daily Challenge', 'Weekly Challenge', 'Competition'] },
+    { id: 'challenges', label: 'Challenges', icon: 'star', page: 'challenges', children: [
+      { id: 'challenges-all', label: 'All Challenges', page: 'challenges' },
+      { id: 'challenges-daily', label: 'Daily Challenges', page: 'challenges-daily' },
+      { id: 'challenges-weekly', label: 'Weekly Challenges', page: 'challenges-weekly' },
+      { id: 'challenges-oneoff', label: 'One-off Competitions', page: 'challenges-oneoff' },
+    ] },
   ] },
   { heading: 'COMMERCE', items: [
     { id: 'coupons', label: 'Coupons', icon: 'tag', page: 'coupons', children: [
@@ -771,6 +776,188 @@ function AdminSettings({ token, page, onNotice }) {
         </section>
       )}
       <p className="admin-data-note"><Icon name="shield" size={15} /> Every update is validated against the row's declared type and stored constraints, cross-field invariants included, then recorded in the settings audit log with your account and reason.</p>
+    </section>
+  )
+}
+
+function AdminChallenges({ token, page, onNotice }) {
+  const [result, setResult] = useState(null)
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [reloadKey, setReloadKey] = useState(0)
+  const [formChallenge, setFormChallenge] = useState(undefined) // null = create, object = edit
+  const [formBusy, setFormBusy] = useState(false)
+  const [formError, setFormError] = useState('')
+  const [tests, setTests] = useState([])
+  const period = page === 'challenges-daily' ? 'daily'
+    : page === 'challenges-weekly' ? 'weekly'
+      : page === 'challenges-oneoff' ? 'one_off' : 'all'
+  const requestKey = `${period}:${statusFilter}:${reloadKey}`
+
+  useEffect(() => {
+    let active = true
+    const params = new URLSearchParams({ per_page: '50', status: statusFilter })
+    if (period !== 'all') params.set('period', period)
+    apiRequest(`/admin/challenges?${params.toString()}`, { token })
+      .then((data) => { if (active) setResult({ key: requestKey, data }) })
+      .catch((requestError) => { if (active) setResult({ key: requestKey, error: requestError.message }) })
+    return () => { active = false }
+  }, [requestKey, period, statusFilter, token])
+
+  useEffect(() => {
+    let active = true
+    apiRequest('/tests?status=published&per_page=100', { token })
+      .then((data) => { if (active) setTests(data.data || []) })
+      .catch(() => { if (active) setTests([]) })
+    return () => { active = false }
+  }, [token])
+
+  const currentResult = result?.key === requestKey ? result : null
+  const challenges = currentResult?.data?.data || []
+  const meta = currentResult?.data?.meta
+  const loading = !currentResult
+  const loadError = currentResult?.error || ''
+
+  const number = (value) => Number(value || 0).toLocaleString()
+  const when = (iso) => (iso ? new Date(iso).toLocaleString() : '—')
+  const money = (minor) => `৳${(Number(minor || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const toLocalInput = (iso) => {
+    if (!iso) return ''
+    const date = new Date(iso)
+    const pad = (value) => String(value).padStart(2, '0')
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+  }
+  const statusBadge = (status) => {
+    if (status === 'active') return <span className="admin-user-status is-active">active</span>
+    if (status === 'upcoming') return <span className="admin-user-status is-live">upcoming</span>
+    return <span className={`admin-user-status ${status === 'ended' ? '' : 'is-blocked'}`}>{status}</span>
+  }
+  const periodLabel = { daily: 'Daily', weekly: 'Weekly', one_off: 'One-off' }
+
+  async function saveChallenge(event) {
+    event.preventDefault()
+    setFormError('')
+    setFormBusy(true)
+    const fields = new FormData(event.currentTarget)
+    const payload = {
+      title: fields.get('title').trim(),
+      description: fields.get('description').trim() || null,
+      period: fields.get('period'),
+      test_id: Number(fields.get('test_id')),
+      timezone: fields.get('timezone').trim() || 'Asia/Dhaka',
+      starts_at: new Date(fields.get('starts_at')).toISOString(),
+      ends_at: new Date(fields.get('ends_at')).toISOString(),
+      duration_minutes: Number(fields.get('duration_minutes')),
+      attempts_allowed: Number(fields.get('attempts_allowed')),
+      reward_points: Number(fields.get('reward_points') || 0),
+      reward_xp: Number(fields.get('reward_xp') || 0),
+      reward_wallet_minor: Math.round(Number(fields.get('reward_wallet_minor') || 0) * 100),
+      is_active: fields.get('is_active') === 'on',
+    }
+    const editing = formChallenge !== null
+    try {
+      const response = await apiRequest(
+        editing ? `/admin/challenges/${formChallenge.id}` : '/admin/challenges',
+        { method: editing ? 'PATCH' : 'POST', token, body: JSON.stringify(payload) },
+      )
+      setFormChallenge(undefined)
+      onNotice(response.message)
+      setReloadKey((value) => value + 1)
+    } catch (requestError) {
+      setFormError(requestError.message)
+    } finally {
+      setFormBusy(false)
+    }
+  }
+
+  const heading = page === 'challenges-daily' ? ['CHALLENGES', 'Daily challenges', 'Twenty-four hour quiz windows that reset at midnight in the challenge timezone.']
+    : page === 'challenges-weekly' ? ['CHALLENGES', 'Weekly challenges', 'Seven-day windows for broader revision sprints.']
+      : page === 'challenges-oneoff' ? ['CHALLENGES', 'One-off competitions', 'Single-occurrence events: the window runs once and never repeats.']
+        : ['CHALLENGES', 'Challenges', 'Daily, weekly and one-off quiz challenges. Rewards settle automatically after each student submits.']
+
+  return (
+    <section className="admin-module-page admin-challenges-page">
+      <div className="admin-page-heading">
+        <div><span className="eyebrow">{heading[0]}</span><h1>{heading[1]}</h1><p>{heading[2]}</p></div>
+        <button className="button button-primary" onClick={() => { setFormError(''); setFormChallenge(null) }}><Icon name="arrow" size={17} /> Create challenge</button>
+      </div>
+      <div className="admin-module-stats admin-users-stats">
+        <span><b>{meta ? number(meta.total) : '—'}</b> challenges</span>
+      </div>
+      <section className="admin-panel admin-users-panel">
+        <div className="admin-users-toolbar">
+          <div><span className="eyebrow">CHALLENGE DIRECTORY</span><h2>{period === 'all' ? 'All challenges' : `${periodLabel[period]} challenges`}</h2></div>
+          <div className="admin-subject-tools">
+            <label className="sr-only" htmlFor="admin-challenge-status">Filter challenges by status</label>
+            <select id="admin-challenge-status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+              <option value="all">All statuses</option>
+              <option value="upcoming">Upcoming</option>
+              <option value="active">Active</option>
+              <option value="ended">Ended</option>
+              <option value="disabled">Disabled</option>
+            </select>
+          </div>
+        </div>
+        {loadError && <div className="form-error dashboard-error" role="alert">{loadError}</div>}
+        {loading ? <div className="dashboard-loading">Loading challenges…</div> : challenges.length ? <div className="admin-user-table-wrap"><table className="admin-subject-table">
+          <thead><tr><th>Challenge</th><th>Period</th><th>Status</th><th>Window</th><th>Format</th><th>Reward</th><th>Students</th><th>Actions</th></tr></thead>
+          <tbody>{challenges.map((challenge) => <tr key={challenge.id}>
+            <td><b>{challenge.title}</b><small>{challenge.description || 'No description'}</small><small>Test #{challenge.test_id} · {challenge.timezone}</small></td>
+            <td>{periodLabel[challenge.period] || challenge.period}</td>
+            <td>{statusBadge(challenge.status)}</td>
+            <td>{when(challenge.starts_at)}<small>→ {when(challenge.ends_at)}</small></td>
+            <td>{challenge.duration_minutes} min<small>{challenge.attempts_allowed} attempt(s) per occurrence</small></td>
+            <td>{number(challenge.reward?.points)} pts<small>{number(challenge.reward?.xp)} XP · {money(challenge.reward?.wallet_minor)}</small></td>
+            <td>{number(challenge.participant_count)}</td>
+            <td><button className="admin-user-view" onClick={() => { setFormError(''); setFormChallenge(challenge) }}>Edit</button></td>
+          </tr>)}</tbody>
+        </table></div> : !loadError ? <div className="admin-users-empty"><Icon name="star" size={22} /><b>No challenges found</b><span>Create a challenge against a published test.</span></div> : null}
+      </section>
+      <p className="admin-data-note"><Icon name="info" size={15} /> Students join through the standard exam UI; rewards (points, XP, wallet credit) settle idempotently after submission. The test and period are frozen once a challenge has participants.</p>
+      {formChallenge !== undefined && <div className="auth-backdrop admin-create-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !formBusy) setFormChallenge(undefined) }}>
+        <section className="auth-card admin-create-card admin-subject-form-card" role="dialog" aria-modal="true" aria-labelledby="challenge-form-title">
+          <button className="auth-close" onClick={() => setFormChallenge(undefined)} aria-label="Close challenge form" disabled={formBusy}><Icon name="close" /></button>
+          <div className="auth-eyebrow">CHALLENGE MANAGEMENT</div>
+          <h2 id="challenge-form-title">{formChallenge === null ? 'Create a challenge' : `Edit “${formChallenge.title}”`}</h2>
+          {formError && <div className="form-error" role="alert">{formError}</div>}
+          <form className="auth-form admin-test-form" onSubmit={saveChallenge}>
+            <label>Title<input name="title" required maxLength={120} defaultValue={formChallenge?.title || ''} placeholder="e.g. Daily Quiz: Pharmacology" /></label>
+            <label>Description<textarea name="description" maxLength={1000} defaultValue={formChallenge?.description || ''} placeholder="Shown to students on the challenge card" /></label>
+            <div className="admin-form-row">
+              <label>Period<select name="period" required defaultValue={formChallenge?.period || 'daily'}>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="one_off">One-off</option>
+              </select></label>
+              <label>Published test<select name="test_id" required defaultValue={formChallenge?.test_id ?? ''}>
+                <option value="" disabled>Select a test</option>
+                {tests.map((test) => <option key={test.id} value={test.id}>#{test.id} — {test.title}{test.is_premium ? ' (premium)' : ''}</option>)}
+              </select></label>
+            </div>
+            <div className="admin-form-row">
+              <label>Starts at<input name="starts_at" type="datetime-local" required defaultValue={toLocalInput(formChallenge?.starts_at)} /></label>
+              <label>Ends at<input name="ends_at" type="datetime-local" required defaultValue={toLocalInput(formChallenge?.ends_at)} /></label>
+            </div>
+            <div className="admin-form-row">
+              <label>Duration (minutes)<input name="duration_minutes" type="number" min={1} max={1440} required defaultValue={formChallenge?.duration_minutes ?? 15} /></label>
+              <label>Attempts per occurrence<input name="attempts_allowed" type="number" min={1} max={10} required defaultValue={formChallenge?.attempts_allowed ?? 1} /></label>
+            </div>
+            <div className="admin-form-row">
+              <label>Reward points<input name="reward_points" type="number" min={0} max={10000} defaultValue={formChallenge?.reward?.points ?? 50} /></label>
+              <label>Reward XP<input name="reward_xp" type="number" min={0} max={100000} defaultValue={formChallenge?.reward?.xp ?? 100} /></label>
+            </div>
+            <div className="admin-form-row">
+              <label>Wallet credit (৳)<input name="reward_wallet_minor" type="number" min={0} step="0.01" defaultValue={(Number(formChallenge?.reward?.wallet_minor || 0) / 100)} /></label>
+              <label>Timezone<input name="timezone" maxLength={64} defaultValue={formChallenge?.timezone || 'Asia/Dhaka'} /></label>
+            </div>
+            <label className="admin-checkbox-label"><input name="is_active" type="checkbox" defaultChecked={formChallenge ? formChallenge.is_active : true} /> Challenge is active (visible and joinable)</label>
+            {formChallenge && formChallenge.participant_count > 0 && <p className="admin-data-note"><Icon name="shield" size={15} /> This challenge has participants — the test and period are now frozen.</p>}
+            <div className="admin-form-row admin-settings-actions">
+              <button type="button" className="button button-outline" onClick={() => setFormChallenge(undefined)} disabled={formBusy}>Cancel</button>
+              <button type="submit" className="button button-primary" disabled={formBusy}>{formBusy ? 'Saving…' : formChallenge === null ? 'Create challenge' : 'Save changes'}</button>
+            </div>
+          </form>
+        </section>
+      </div>}
     </section>
   )
 }
@@ -1695,6 +1882,8 @@ function AdminDashboard({ user, token, onLogout, busy, sessionError, navigateTo 
             <ReferralPanel token={token} />
           ) : activePage === 'coupons' ? (
             <AdminCoupons token={token} onNotice={setNotice} />
+          ) : activePage === 'challenges' || activePage.startsWith('challenges-') ? (
+            <AdminChallenges token={token} page={activePage} onNotice={setNotice} />
           ) : ['settings', 'settings-general', 'settings-exam-settings', 'settings-payment-settings', 'settings-referral-settings', 'settings-gamification-settings', 'settings-system-settings'].includes(activePage) ? (
             <AdminSettings token={token} page={activePage} onNotice={setNotice} />
           ) : (

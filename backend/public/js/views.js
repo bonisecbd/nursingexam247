@@ -32,6 +32,7 @@ const Views = (() => {
                     <a href="/tests" class="${active === 'tests' ? 'active' : ''}">Tests</a>
                     <a href="/history" class="${active === 'history' ? 'active' : ''}">History</a>
                     <a href="/leaderboard" class="${active === 'leaderboard' ? 'active' : ''}">Leaderboard</a>
+                    <a href="/challenges" class="${active === 'challenges' ? 'active' : ''}">Challenges</a>
                     <a href="/notifications" class="${active === 'notifications' ? 'active' : ''}">Notifications</a>
                     <a href="/referrals" class="${active === 'referrals' ? 'active' : ''}">Referrals</a>
                     <a href="/wallet" class="${active === 'wallet' ? 'active' : ''}">Wallet</a>
@@ -53,6 +54,7 @@ const Views = (() => {
             <a href="/tests" class="${active === 'tests' ? 'active' : ''}">📝 Model Tests</a>
             <a href="/history" class="${active === 'history' ? 'active' : ''}">📜 Attempt History</a>
             <a href="/leaderboard" class="${active === 'leaderboard' ? 'active' : ''}">🏆 Leaderboard</a>
+            <a href="/challenges" class="${active === 'challenges' ? 'active' : ''}">🎯 Challenges</a>
             <a href="/notifications" class="${active === 'notifications' ? 'active' : ''}">🔔 Notifications</a>
             <a href="/referrals" class="${active === 'referrals' ? 'active' : ''}">🤝 Referrals</a>
             <a href="/wallet" class="${active === 'wallet' ? 'active' : ''}">👛 Wallet</a>
@@ -748,6 +750,118 @@ const Views = (() => {
         </div>`;
     }
 
+    /* ---------- CHALLENGES ---------- */
+    function challenges(state) {
+        const list = Array.isArray(state && state.list) ? state.list : [];
+        const meMap = (state && state.me) || {};
+        const standingsFor = state && state.standingsFor;
+        const standings = Array.isArray(state && state.standings) ? state.standings : [];
+
+        function money(minor) {
+            return (Number(minor || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        function when(iso) {
+            return iso ? String(iso).replace('T', ' ').slice(0, 16) + ' (UTC)' : '—';
+        }
+
+        function left(iso) {
+            const ms = new Date(iso) - Date.now();
+            if (ms <= 0) return 'ended';
+            const h = Math.floor(ms / 36e5);
+            const m = Math.floor((ms % 36e5) / 6e4);
+            return h > 0 ? h + 'h ' + m + 'm left' : m + 'm left';
+        }
+
+        const periodBadge = (period) => {
+            if (period === 'daily') return '<span class="badge badge-info">Daily</span>';
+            if (period === 'weekly') return '<span class="badge badge-warning">Weekly</span>';
+            return '<span class="badge badge-success">One-off</span>';
+        };
+
+        const cards = list.length ? `
+            <div class="grid-2">
+                ${list.map(c => {
+                    const me = meMap[c.id] || null;
+                    const reward = c.reward || {};
+                    return `
+                <div class="card" style="display:flex;flex-direction:column;gap:8px">
+                    <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
+                        <div>
+                            <div class="lb-me-label">${periodBadge(c.period)} <span style="margin-left:6px">⏳ ${esc(left(c.ends_at))}</span></div>
+                            <div style="font-size:1.1rem;font-weight:800;margin-top:4px">${esc(c.title)}</div>
+                        </div>
+                        ${me && me.rank ? `<span class="badge badge-success" style="flex:0 0 auto">#${num(me.rank)}</span>` : ''}
+                    </div>
+                    ${c.description ? `<p class="text-muted" style="margin:0;font-size:.85rem">${esc(c.description)}</p>` : ''}
+                    <div style="display:flex;gap:6px;flex-wrap:wrap">
+                        <span class="badge badge-info">⏱ ${num(c.duration_minutes)} min</span>
+                        <span class="badge badge-info">🔁 ${num(c.attempts_allowed)} attempt${num(c.attempts_allowed) === 1 ? '' : 's'}</span>
+                        <span class="badge badge-success">+${num(reward.points)} pts</span>
+                        <span class="badge badge-success">+${num(reward.xp)} XP</span>
+                        ${num(reward.wallet_minor) > 0 ? `<span class="badge badge-success">+৳${money(reward.wallet_minor)}</span>` : ''}
+                        <span class="badge">${num(c.participant_count)} joined</span>
+                    </div>
+                    ${me ? `<p class="text-muted" style="margin:0;font-size:.82rem">${num(me.attempts_used)}/${num(me.attempts_allowed)} attempts used today${me.rank ? ' · your rank <strong>#' + num(me.rank) + '</strong> · score ' + num(me.score) + '%' : ''}${me.live_attempt ? ' · <strong>attempt in progress</strong>' : ''}</p>` : ''}
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px">
+                        ${me && me.live_attempt
+                            ? `<button class="btn btn-primary" id="chstart-${c.id}" onclick="App.resumeChallenge(${me.live_attempt.id})">▶ Resume attempt</button>`
+                            : `<button class="btn btn-primary" id="chstart-${c.id}" onclick="App.startChallenge(${c.id})">▶ Start challenge</button>`}
+                        <button class="btn btn-outline" onclick="App.loadChallengeStandings(${c.id})">🏅 Standings</button>
+                    </div>
+                </div>`; }).join('')}
+            </div>` : `
+            <div class="card empty-state">
+                <div class="icon">🎯</div>
+                <h3>No live challenges right now</h3>
+                <p>New daily and weekly challenges appear here when they are running</p>
+            </div>`;
+
+        const standingsCard = standingsFor ? (() => {
+            const c = list.find(ch => ch.id === standingsFor) || {};
+            return `
+            <h2 style="font-size:1.1rem;font-weight:700;margin:18px 0 10px">🏅 Standings — ${esc(c.title || 'Challenge')}</h2>
+            ${standings.length ? `
+            <div class="card" style="padding:0">
+                <div class="table-wrapper">
+                    <table class="table">
+                        <thead><tr><th>Rank</th><th>Student</th><th>Score</th><th>Attempts</th><th>Achieved</th></tr></thead>
+                        <tbody>
+                            ${standings.map(s => `
+                            <tr>
+                                <td><strong>#${num(s.rank)}</strong></td>
+                                <td>${esc(s.display_name || 'Student')}</td>
+                                <td>${num(s.score)}%</td>
+                                <td>${num(s.attempt_count)}</td>
+                                <td>${esc(when(s.achieved_at))}</td>
+                            </tr>`).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>` : `
+            <div class="card empty-state">
+                <div class="icon">🏅</div>
+                <h3>No finished attempts yet</h3>
+                <p>The standings fill up as students submit</p>
+            </div>`}`;
+        })() : '';
+
+        return `
+        ${header('challenges')}
+        <div class="layout">
+            ${sidebar('challenges')}
+            <main class="main">
+                <h1 style="font-size:1.6rem;font-weight:800;margin-bottom:4px">🎯 Challenges</h1>
+                <p class="text-muted mb-3">Timed quiz challenges — join, compete, and climb the standings. Rewards land in your wallet and points balance after you submit.</p>
+
+                ${cards}
+                ${standingsCard}
+
+                <p class="text-muted" style="font-size:.82rem;margin-top:12px">Attempts reuse the standard exam player: your timer clamps to the challenge deadline, and rewards settle automatically after submission — the first completed attempt per day earns the prize, replays never double-award.</p>
+            </main>
+        </div>`;
+    }
+
     /* ---------- NOTIFICATIONS ---------- */
     function notifications(state) {
         const items = Array.isArray(state.items) ? state.items : [];
@@ -1195,5 +1309,5 @@ const Views = (() => {
         </div>`;
     }
 
-    return { header, sidebar, login, register, forgot, dashboard, testsList, examHeader, examBody, questionView, result, solution, solutionItem, history, leaderboard, notifications, referrals, wallet, premium, profile, esc };
+    return { header, sidebar, login, register, forgot, dashboard, testsList, examHeader, examBody, questionView, result, solution, solutionItem, history, leaderboard, challenges, notifications, referrals, wallet, premium, profile, esc };
 })();
