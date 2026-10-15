@@ -33,6 +33,7 @@ const Views = (() => {
                     <a href="/history" class="${active === 'history' ? 'active' : ''}">History</a>
                     <a href="/leaderboard" class="${active === 'leaderboard' ? 'active' : ''}">Leaderboard</a>
                     <a href="/notifications" class="${active === 'notifications' ? 'active' : ''}">Notifications</a>
+                    <a href="/referrals" class="${active === 'referrals' ? 'active' : ''}">Referrals</a>
                 </div>
                 <div class="nav-user" onclick="navigate('/profile')">
                     <div class="avatar">${initial}</div>
@@ -51,6 +52,7 @@ const Views = (() => {
             <a href="/history" class="${active === 'history' ? 'active' : ''}">📜 Attempt History</a>
             <a href="/leaderboard" class="${active === 'leaderboard' ? 'active' : ''}">🏆 Leaderboard</a>
             <a href="/notifications" class="${active === 'notifications' ? 'active' : ''}">🔔 Notifications</a>
+            <a href="/referrals" class="${active === 'referrals' ? 'active' : ''}">🤝 Referrals</a>
             <div class="section-title">Account</div>
             <a href="/profile" class="${active === 'profile' ? 'active' : ''}">👤 Profile</a>
             <a href="javascript:void(0)" onclick="App.logout()">🚪 Logout</a>
@@ -116,6 +118,10 @@ const Views = (() => {
                             <input type="password" id="password_confirmation" class="form-control" placeholder="Repeat password" required>
                             <div class="form-error" id="password_confirmation-error"></div>
                         </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="referral-code">Referral Code (optional)</label>
+                        <input type="text" id="referral-code" class="form-control" placeholder="Friend's code" maxlength="24" pattern="[A-Za-z0-9]+" value="${esc((function () { try { return new URLSearchParams(location.search).get('ref') || ''; } catch (_) { return ''; } })())}">
                     </div>
                     <div class="form-error" id="form-error" style="text-align:center;margin-bottom:12px"></div>
                     <button type="submit" class="btn btn-primary btn-block btn-lg" id="register-btn">Create Account</button>
@@ -797,6 +803,101 @@ const Views = (() => {
         </div>`;
     }
 
+    /* ---------- REFERRALS ---------- */
+    function referrals(state) {
+        const d = (state && state.dashboard) || {};
+        const counts = d.counts || {};
+        const attribution = d.attribution || null;
+        const invites = Array.isArray(state && state.invites) ? state.invites : [];
+        const meta = (state && state.invitesMeta) || {};
+        const code = d.code || '';
+        const shareUrl = code ? location.origin + '/register?ref=' + encodeURIComponent(code) : '';
+
+        const statusBadge = (status) => {
+            if (status === 'qualified') return '<span class="badge badge-success">Qualified</span>';
+            if (status === 'disqualified') return '<span class="badge badge-danger">Disqualified</span>';
+            return '<span class="badge badge-warning">Pending</span>';
+        };
+
+        function when(iso) {
+            return iso ? String(iso).replace('T', ' ').slice(0, 16) + ' (UTC)' : '—';
+        }
+
+        const redeemCard = d.can_redeem ? `
+            <div class="card">
+                <div class="card-header"><span class="card-title">🎁 Have a referral code?</span></div>
+                <p class="text-muted" style="margin-top:0">Enter a friend's code within 24 hours of registering and before your first test. It links to your account and stays pending until qualification.</p>
+                <form id="redeem-form" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+                    <div class="form-group" style="flex:1;min-width:200px;margin:0">
+                        <input type="text" id="redeem-code" class="form-control" placeholder="e.g. ABC123" maxlength="24" pattern="[A-Za-z0-9]+" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Apply code</button>
+                </form>
+            </div>` : attribution ? `
+            <div class="card">
+                <div class="card-header"><span class="card-title">🎁 Referral attribution</span></div>
+                <p style="margin:0">Joined with a referral — ${statusBadge(attribution.status)} <span class="text-muted">(referred ${esc(when(attribution.referred_at))}${attribution.qualifying_event ? ' · event: ' + esc(attribution.qualifying_event) : ''})</span></p>
+            </div>` : '';
+
+        const table = invites.length ? `
+            <div class="card" style="padding:0">
+                <div class="table-wrapper">
+                    <table class="table">
+                        <thead><tr><th>Status</th><th>Referred</th><th>Qualifying event</th><th>Qualified at</th></tr></thead>
+                        <tbody>
+                            ${invites.map(inv => `
+                            <tr>
+                                <td>${statusBadge(inv.status)}</td>
+                                <td>${esc(when(inv.referred_at))}</td>
+                                <td>${esc(inv.qualifying_event || '—')}</td>
+                                <td>${esc(when(inv.qualified_at))}</td>
+                            </tr>`).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>` : `
+            <div class="card empty-state">
+                <div class="icon">🤝</div>
+                <h3>No invites yet</h3>
+                <p>Share your code — friends who register with it appear here</p>
+            </div>`;
+
+        return `
+        ${header('referrals')}
+        <div class="layout">
+            ${sidebar('referrals')}
+            <main class="main">
+                <h1 style="font-size:1.6rem;font-weight:800;margin-bottom:4px">🤝 Referrals</h1>
+                <p class="text-muted mb-3">Invite fellow nursing students with your personal code</p>
+
+                ${code ? `
+                <div class="card lb-me" style="margin-bottom:12px">
+                    <div class="lb-me-info">
+                        <div class="lb-me-label">Your referral code</div>
+                        <div style="font-size:1.5rem;font-weight:800;letter-spacing:.12em">${esc(code)}</div>
+                        <p class="text-muted" style="margin:6px 0 0;font-size:.85rem">Share link: <code id="ref-share-url">${esc(shareUrl)}</code></p>
+                    </div>
+                    <button class="btn btn-primary" onclick="App.copyReferralLink()">Copy link</button>
+                </div>` : ''}
+
+                <div class="grid-4 mb-3">
+                    <div class="card" style="text-align:center"><div style="font-size:1.4rem;font-weight:800">${num(counts.total)}</div><div class="lb-me-label">Total invites</div></div>
+                    <div class="card" style="text-align:center"><div style="font-size:1.4rem;font-weight:800">${num(counts.pending)}</div><div class="lb-me-label">Pending</div></div>
+                    <div class="card" style="text-align:center"><div style="font-size:1.4rem;font-weight:800;color:var(--success)">${num(counts.qualified)}</div><div class="lb-me-label">Qualified</div></div>
+                    <div class="card" style="text-align:center"><div style="font-size:1.4rem;font-weight:800;color:var(--danger)">${num(counts.disqualified)}</div><div class="lb-me-label">Disqualified</div></div>
+                </div>
+
+                ${redeemCard}
+
+                <h2 style="font-size:1.1rem;font-weight:700;margin:18px 0 10px">Your invites</h2>
+                ${table}
+                ${meta.last_page > meta.current_page ? `<button class="btn btn-outline mt-2" onclick="App.loadMoreInvites()">Load more</button>` : ''}
+
+                <p class="text-muted" style="font-size:.82rem;margin-top:12px">Referral rewards activate when the purchase/qualification policy is defined. Attribution alone never grants points or money.</p>
+            </main>
+        </div>`;
+    }
+
     /* ---------- PROFILE ---------- */
     function profile(data) {
         const u = data.user || API.user() || {};
@@ -888,5 +989,5 @@ const Views = (() => {
         </div>`;
     }
 
-    return { header, sidebar, login, register, forgot, dashboard, testsList, examHeader, examBody, questionView, result, solution, solutionItem, history, leaderboard, notifications, profile, esc };
+    return { header, sidebar, login, register, forgot, dashboard, testsList, examHeader, examBody, questionView, result, solution, solutionItem, history, leaderboard, notifications, referrals, profile, esc };
 })();

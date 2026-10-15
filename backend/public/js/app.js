@@ -36,6 +36,7 @@ const App = (() => {
             if (path === '/history') return pageHistory();
             if (path === '/leaderboard') return pageLeaderboard();
             if (path === '/notifications') return pageNotifications();
+            if (path === '/referrals') return pageReferrals();
             if (path === '/profile') return pageProfile();
 
             const examMatch = path.match(/^\/exam\/(\d+)$/);
@@ -479,6 +480,89 @@ const App = (() => {
     }
 
     /* ==========================================================
+       PAGE: Referrals
+       ========================================================== */
+    const refState = { dashboard: null, invites: [], invitesMeta: {} };
+
+    async function pageReferrals() {
+        const seq = loading('Loading referrals...');
+        const [dashRes, invitesRes] = await Promise.allSettled([
+            API.request('/referrals/me'),
+            API.request('/referrals/me/invites?per_page=15'),
+        ]);
+        if (stale(seq)) return;
+
+        if (dashRes.status === 'rejected') {
+            toast(dashRes.reason.message || 'Could not load your referral dashboard', 'error');
+            render(Views.referrals(refState));
+            return;
+        }
+
+        refState.dashboard = dashRes.value.referral || dashRes.value;
+        if (invitesRes.status === 'fulfilled') {
+            refState.invites = invitesRes.value.data || [];
+            refState.invitesMeta = invitesRes.value.meta || {};
+        } else {
+            toast(invitesRes.reason.message || 'Could not load your invites', 'error');
+        }
+
+        render(Views.referrals(refState));
+
+        const rf = document.getElementById('redeem-form');
+        if (rf) rf.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const codeEl = document.getElementById('redeem-code');
+            const code = (codeEl.value || '').trim();
+            if (!code) return;
+            const btn = rf.querySelector('button[type="submit"]');
+            if (btn) { btn.disabled = true; btn.textContent = 'Applying...'; }
+            try {
+                const res = await API.request('/referrals/redeem', { method: 'POST', body: { code: code } });
+                toast(res.message || 'Referral code linked to your account.');
+                pageReferrals();
+            } catch (err) {
+                toast(err.message || 'Could not apply the code', 'error');
+                if (btn) { btn.disabled = false; btn.textContent = 'Apply code'; }
+            }
+        });
+    }
+
+    async function loadMoreInvites() {
+        try {
+            const page = (refState.invitesMeta.current_page || 1) + 1;
+            const data = await API.request('/referrals/me/invites?per_page=15&page=' + page);
+            refState.invites = (refState.invites || []).concat(data.data || []);
+            refState.invitesMeta = data.meta || refState.invitesMeta;
+            render(Views.referrals(refState));
+        } catch (e) {
+            toast(e.message, 'error');
+        }
+    }
+
+    function copyReferralLink() {
+        const el = document.getElementById('ref-share-url');
+        const url = el ? el.textContent : '';
+        if (!url) return;
+        const done = () => toast('Referral link copied!');
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(url).then(done).catch(() => fallbackCopy(url, done));
+        } else {
+            fallbackCopy(url, done);
+        }
+    }
+
+    function fallbackCopy(text, done) {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); done(); } catch (_) { toast('Copy failed — select the link manually', 'error'); }
+        document.body.removeChild(ta);
+    }
+
+    /* ==========================================================
        PAGE: Profile
        ========================================================== */
     async function pageProfile() {
@@ -602,11 +686,14 @@ const App = (() => {
             const btn = document.getElementById('register-btn');
             btn.disabled = true; btn.textContent = 'Creating...';
             try {
+                const refInput = document.getElementById('referral-code');
+                const refCode = refInput ? refInput.value.trim() : '';
                 const res = await API.register({
                     name: document.getElementById('name').value,
                     email: document.getElementById('email').value,
                     password: document.getElementById('password').value,
                     password_confirmation: document.getElementById('password_confirmation').value,
+                    ...(refCode ? { referral_code: refCode } : {}),
                 });
                 if (!res.token) throw new Error('Registration response did not include a token');
                 API.setAuth(res.token, res.user || {});
@@ -787,6 +874,7 @@ const App = (() => {
         if (page === 'history') return pageHistory();
         if (page === 'leaderboard') return pageLeaderboard();
         if (page === 'notifications') return pageNotifications();
+        if (page === 'referrals') return pageReferrals();
         if (page === 'profile') return pageProfile();
 
         route();
@@ -803,6 +891,7 @@ const App = (() => {
         loadMoreSolutions,
         toggleLeaderboardOptIn,
         markNotificationRead, markAllNotificationsRead, loadMoreNotifications,
+        copyReferralLink, loadMoreInvites,
         route,
     };
 })();

@@ -484,11 +484,39 @@ The first submitted completion of each published test earns 5 points and 10 XP b
 
 Creates a cryptographically random, unique referral code on first use and returns the stable code, aggregate invite counts by status, the caller's own attribution (if any), onboarding `can_redeem` state, and `reward_status`. The frontend builds a shareable registration URL from the current site origin and code. Staff and inactive users cannot access referral features.
 
+```json
+{
+  "referral": {
+    "code": "X7K2M9QP",
+    "attribution": null,
+    "can_redeem": true,
+    "counts": { "total": 3, "pending": 2, "qualified": 1, "disqualified": 0 },
+    "reward_status": "unavailable_until_purchase_module"
+  }
+}
+```
+
+When the caller was themselves referred, `attribution` is `{ "status": "pending|qualified|disqualified", "referred_at": "...", "qualifying_event": "...", "qualified_at": "..." }` and `can_redeem` becomes `false`. `can_redeem` is `true` only within 24 hours of registration and before the first exam attempt.
+
 ### My invitations
 
 `GET /api/referrals/me/invites?page=1&per_page=15` (active student authentication required)
 
 Returns only the authenticated inviter's paginated statuses and referral/qualification timestamps. Invitee IDs, names, email addresses, phone numbers, and other private profile fields are not returned.
+
+```json
+{
+  "data": [
+    {
+      "status": "pending",
+      "referred_at": "2026-10-12T09:30:00.000000Z",
+      "qualifying_event": null,
+      "qualified_at": null
+    }
+  ],
+  "meta": { "current_page": 1, "last_page": 1, "per_page": 15, "total": 1 }
+}
+```
 
 ### Redeem a referral code
 
